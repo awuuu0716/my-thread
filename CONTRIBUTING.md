@@ -8,12 +8,12 @@
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev,browser]'
+.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
 .\.venv\Scripts\python.exe -m playwright install chromium
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Linux／macOS 將 `.venv\Scripts\python.exe` 換成 `.venv/bin/python`；Linux CI 使用 `playwright install --with-deps chromium`。只體驗 API／demo 可不安裝 browser extra，但完整測試需安裝。
+Linux／macOS 將 `.venv\Scripts\python.exe` 換成 `.venv/bin/python`；Linux CI 使用 `playwright install --with-deps chromium`。0.2 只有瀏覽器路徑，Playwright 是必要依賴，API 歷史見 `legacy/api`。
 
 ## 提交變更
 
@@ -30,7 +30,7 @@ Linux／macOS 將 `.venv\Scripts\python.exe` 換成 `.venv/bin/python`；Linux C
 
 | 範圍 | 方法 |
 | --- | --- |
-| API／OAuth／儲存 | HTTP mock、假的 keyring、暫存目錄 |
+| 純文字／CLI／生命週期 | 單元測試、mock 來源、暫存目錄 |
 | 瀏覽器擷取 | Chromium `set_content()` 加匿名合成 HTML |
 | 互動流程 | Textual `run_test()`／pilot，滑鼠與快捷鍵都要驗證 |
 | 持久化 profile | pytest `tmp_path`，不得使用真正登入的 profile |
@@ -38,7 +38,7 @@ Linux／macOS 將 `.venv\Scripts\python.exe` 換成 `.venv/bin/python`；Linux C
 
 瀏覽器 regression 重點：時間／工具列不是正文、虛擬列表、去重、捲動容器、失效選擇器、忙碌時返回、逾時、headless／headed、頁面關閉。非同步測試不要留下未結束的 worker、task 或瀏覽器程序。
 
-`HeaderTitle` 與按鈕事件曾發生生命週期錯誤：Textual 的 `event.stop()` 只阻止冒泡；覆寫父類別事件時可能還需 `prevent_default()`。請以實際點擊測試確認，不能只測快捷鍵。
+`HeaderTitle` 與按鈕事件曾發生生命週期錯誤：Textual 的 `event.stop()` 只阻止冒泡；覆寫父類別事件時可能還需 `prevent_default()`。請以實際點擊測試確認，不能只測快捷鍵。可攜版另外使用 `mythread.exe --self-test`，建置及乾淨機驗收見維護指南。
 
 ## 回報擷取問題
 

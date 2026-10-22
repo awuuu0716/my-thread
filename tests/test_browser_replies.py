@@ -5,7 +5,7 @@ import pytest
 from mythread.browser import BrowserBatch, BrowserSource, ReplySource, SNAPSHOT, extract_posts
 from mythread.browser import SCROLL
 from mythread.browser_ui import BrowserApp, BrowserArticle, CommentsScreen
-from mythread.tui import Article
+from mythread.browser_ui import BrowserReader as Article
 
 
 def row(code):

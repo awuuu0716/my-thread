@@ -1,67 +1,58 @@
-# 維護與發行
+# 維護、打包與發行
 
-[返回 README](../README.md)
+## 驗收與支援
 
-## 支援範圍與驗收
+Python 最低 3.11，主要人工試用為 Windows；來源 CI 配置 Windows／Ubuntu、Python 3.11／3.13。可攜 exe 目前僅 Windows x64，必須在 Windows x64 建置。配置不代表遠端已通過；macOS 未全面驗證。
 
-最低 Python 3.11，主要人工試用為 Windows。CI 規劃 Windows／Ubuntu、Python 3.11／3.13；配置檔存在不表示遠端已執行，macOS 與其他 Python 版本也不可據此宣稱支援完成。
+PR 應執行相關 regression、完整 pytest、`git diff --check`。套件修改另跑 build／twine check。測試不使用 Threads 帳號，滑鼠與快捷鍵都要驗證，不能只測其中一種。
 
-每個 PR 應通過相關 regression、完整 pytest 及 `git diff --check`。套件 metadata／依賴變更還要通過 build 與 twine check。CI 不使用 Threads 帳號，不執行真實登入或發文。
+依賴與版本來自 `pyproject.toml`。目前未採全量 lockfile，發行時保存實際版本；升級 Playwright 必須一起換相應 Chromium，升級 Textual 要檢查事件繼承／畫面卸載。Dependabot 每月提出更新 PR。
 
-DOM 變更至少驗證：作者與正文對應、原文與留言去重、時間不是正文、歧義容器、缺少 main、引用、推薦邊界、虛擬列表移除舊文章。UI 變更同時測滑鼠與快捷鍵、載入中返回、畫面卸載及不重複預載。
+## 建置 Windows 可攜版
 
-## 人工實站檢查
+使用乾淨的專用建置環境，避免混入 legacy API 或其他開發套件：
 
-使用專用測試帳號／profile；這份清單是待執行流程，不是完成證明。
+```powershell
+python -m venv .tools\bundle-env
+.\.tools\bundle-env\Scripts\python.exe -m pip install -e '.[bundle]'
+.\.tools\bundle-env\Scripts\python.exe scripts/build_windows.py
+```
 
-1. 可見模式手動登入後重新整理，核對數篇作者、正文與 permalink。
-2. 捲動預載、向上閱讀、重新整理後清除舊列表。
-3. 開留言、核對原文排除及數則留言，檢查返回後首頁位置。
-4. 讀取中返回、關閉留言分頁、網路中斷、登入失效，確認可以恢復。
-5. 關閉後用 headless 啟動，確認 session 沿用且沒有彈窗。
-6. 記錄 commit、OS、Python／Playwright 版本、網站語言、日期及限制；不保存憑證或原始 DOM。
+腳本下載對應的完整 Chromium 到已忽略的 `.tools/playwright-bundle-cache`，使用 PyInstaller `onedir`／console 打包 Python、Playwright driver、Textual，將 Chromium 放在發行包 `browsers`。保留各元件授權與版本清單，不複製個人 profile。
 
-目前開發紀錄有 Windows 可見模式文章／留言成功回報，也有輪播頁碼、標籤、引用與底部載入問題。不要把這些個案提升成全站或 headless 實站保證。
+每次建立新的 `dist/mythread-版本-windows-x64-時間/`，不覆蓋既有版本。內含 `mythread/mythread.exe`、`_internal`、`browsers`、使用說明與 notices。腳本從不同工作目錄、帶錯誤的使用者瀏覽器快取設定執行 exe `--self-test`，通過後才產出 ZIP 與 `.sha256`。
 
-## 依賴與 CI
+ZIP 很大是因為包含 Chromium 與 Python／Node 執行環境；不要為了縮小體積刪除必要 DLL 或授權檔。完整建置需網路下載套件／瀏覽器，使用者執行不需 Python；讀取 Threads 仍需要網路。
 
-`pyproject.toml` 為依賴範圍與版本唯一來源；目前未採用完整 lockfile，新的安裝可能解析不同相依版本。CI 記錄環境版本；若發生漂移，先附版本與最小重現，再決定是否縮小範圍，不盲目升級全部套件。
+參考 [Playwright 打包說明](https://playwright.dev/python/docs/library#pyinstaller)與 [PyInstaller 使用說明](https://pyinstaller.org/en/stable/usage.html)。
 
-Dependabot 每月提出 Python／GitHub Actions 更新 PR。升級 Playwright 後需重新安裝相應 Chromium；升級 Textual 時特別檢查事件繼承與 worker／畫面生命週期。工作流程只需 `contents: read`，不在 `pull_request_target` 執行外部 PR 程式碼，不上傳登入 profile 或網站 trace。
+## 乾淨 Windows 驗收（尚需人工完成）
 
-CI 參考 [Playwright 官方 CI 指南](https://playwright.dev/python/docs/ci)。
+不要把開發機的離線 smoke 視為此清單完成：
 
-## 發行流程
+1. 在沒有 Python、Playwright 或瀏覽器快取的 Windows x64 VM／電腦，完整解壓縮。
+2. 雙擊 exe，確認 Terminal 正常顯示，首次使用可以點登入按鈕。
+3. 手動登入，點完成登入，確認網站視窗關閉但文章可讀。
+4. 讀留言、更多、捲動預載、重整、返回、關閉，再啟動確認登入延續。
+5. 測試失去網路、頁面關閉、登入驗證、不同路徑與非 ASCII 使用者目錄。
+6. 記錄 commit、ZIP SHA-256、Windows 版本、測試結果與限制，不保存個人 profile 或原始 DOM。
 
-目前沒有自動發布 PyPI 或部署工作流程；`CHANGELOG.md` 的 Unreleased 不代表已發行。
+發行包目前未簽署，尚無自動更新機制；來源／簽章／下載管道與乾淨機驗收完成前，不宣稱正式穩定版本。
 
-1. 確認目標分支與工作樹，完成測試及適用的人工檢查。
-2. 更新 `pyproject.toml` 版本，將 CHANGELOG 中已完成項目移至實際版本與日期；0.x 破壞性操作變更需明確說明。
-3. 建置並檢查：
+## 原始碼套件
 
-   ```powershell
-   .\.venv\Scripts\python.exe -m pip install build twine
-   .\.venv\Scripts\python.exe -m build
-   .\.venv\Scripts\python.exe -m twine check dist/*
-   ```
+```powershell
+.\.venv\Scripts\python.exe -m pip install build twine
+.\.venv\Scripts\python.exe -m build
+.\.venv\Scripts\python.exe -m twine check dist/mythread_terminal-0.2.0.tar.gz dist/mythread_terminal-0.2.0-py3-none-any.whl
+```
 
-4. 在獨立暫存 venv 安裝產出的 wheel，驗證 `mythread --help`／`mythread browser --help`；確認 wheel 包含 MIT 授權與 README metadata，不包含 profile／秘密。
-5. 維護者決定是否建立 tag／GitHub release／PyPI 發布。未取得發行授權前，不把 merge／本機 build 視為發布指示。
+升版時更新命令中的版本。清潔 venv 安裝 wheel 並驗證 `mythread --help`、`--version`；wheel 使用者仍需 `python -m playwright install chromium`，只有可攜 ZIP 隨附瀏覽器。
 
-## 公開倉庫前的設定
+## 發行與倉庫設定
 
-這些是託管平台設定，不能僅靠本機文件完成：
+CI 自動測試與 build；Windows 可攜版 workflow 為手動觸發，只上傳建置 artifact，不建立 release 或發布 PyPI。維護者確認後才能建立 tag／正式 release。
 
-- 設定正式 remote，補上 `pyproject.toml` 的專案／Issue URL；目前不填占位網址。
-- 在預設分支啟用 CI、分支保護與必要 status checks；實際跑過 Windows／Linux matrix 再標示徽章。
-- 啟用 GitHub 私密漏洞回報，或提供維護者確認的私人聯絡管道，更新 SECURITY.md。
-- 確認貢獻內容的授權來源與 MIT copyright 歸屬；依賴授權仍各自適用。
-- 若開始接受多人協作，指定實際維護者與 review 責任，再建立 CODEOWNERS；不要填虛構帳號。
+目前 API 歷史在 `legacy/api`，拆分前在 `experiment/browser-bridge`，瀏覽器主線在 `browser/main`。原 `main` 不自動改寫；設定 remote 與預設分支、分支保護、私密漏洞回報、CODEOWNERS 需由維護者依實際倉庫設定，不填占位帳號。
 
-## 後續優先項目
-
-1. 擷取品質：作者標籤／輪播計數、引用、推薦區與留言層級。
-2. 獨立「擷取目前 DOM」操作，避免重載後失去手動展開的內容。
-3. 擴充實站 smoke 記錄與不同語言／版面的匿名 fixtures。
-4. 需要時再抽離共用純文字與文章閱讀元件，降低瀏覽器 UI 對 API UI 的耦合。
-5. 官方網頁推薦／追蹤切換、搜尋；維持唯讀與手動驗證邊界。
+後續優先項目：引用／標籤／輪播計數／推薦區擷取品質、保留手動展開的 DOM 擷取操作、不同語言 fixture、推薦／追蹤切換與網頁搜尋。持續維持唯讀與手動驗證邊界。

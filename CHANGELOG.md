@@ -4,6 +4,17 @@
 
 ## Unreleased
 
+### 0.2 瀏覽器獨立版（尚未正式發布）
+
+- 保存 `legacy/api` 基線，於 `browser/main` 移除 API／OAuth／keyring／發文／demo 及相應測試與 HTTPS 工具。
+- 入口改為 `mythread`，不再接受 `browser` 子指令；Playwright 成為必要依賴。
+- 抽離 `text.py`，瀏覽器介面不再繼承 API 閱讀畫面。
+- 「登入視窗／完成登入」按鈕切換可見與背景 context，共用原本專用 profile。
+- Windows 資料夾式 exe 建置腳本、隨附 Chromium、自我檢查、授權清單、ZIP／SHA-256。
+- 乾淨 Windows 人工驗收仍需另外執行，不以開發機 smoke 代替。
+
+## 0.1 開發紀錄（未標記正式 release）
+
 ### 新增
 
 - 獨立瀏覽器唯讀入口、持久化專用 profile、文章與留言閱讀。

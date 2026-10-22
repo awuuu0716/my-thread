@@ -12,7 +12,7 @@ assignees: ''
 
 ## 適用模式
 
-瀏覽器／API／demo：
+原始碼／可攜版，headless／headed：
 
 ## 可接受的替代方案與驗收方式
 

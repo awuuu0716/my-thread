@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mythread-terminal"
-version = "0.1.0"
-description = "A personal, text-only Threads terminal client"
+version = "0.2.0"
+description = "A read-only Threads terminal client powered by a dedicated browser"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -17,12 +17,11 @@ classifiers = [
     "Topic :: Communications",
 ]
 requires-python = ">=3.11"
-dependencies = ["textual>=8.2.8,<9", "httpx>=0.28.1,<1", "keyring>=25.7,<26", "platformdirs>=4,<5"]
+dependencies = ["textual>=8.2.8,<9", "platformdirs>=4,<5", "playwright>=1.55,<2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
-local-https = ["cryptography>=43"]
-browser = ["playwright>=1.55,<2"]
+bundle = ["pyinstaller>=6.16,<7", "packaging>=24"]
 
 [project.scripts]
 mythread = "mythread.cli:main"

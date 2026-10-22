@@ -32,7 +32,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install package and tests
-        run: python -m pip install -e ".[dev,browser]"
+        run: python -m pip install -e ".[dev]"
       - name: Install Chromium and Linux dependencies
         if: runner.os == 'Linux'
         run: python -m playwright install --with-deps chromium
@@ -63,4 +63,4 @@ jobs:
           python -m venv /tmp/mythread-wheel-smoke
           /tmp/mythread-wheel-smoke/bin/python -m pip install dist/*.whl
           /tmp/mythread-wheel-smoke/bin/mythread --help
-          /tmp/mythread-wheel-smoke/bin/mythread browser --help
+          /tmp/mythread-wheel-smoke/bin/mythread --version

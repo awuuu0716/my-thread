@@ -8,13 +8,14 @@ from textual.screen import Screen
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Footer, Label, ListItem, ListView, Static
 
-from .tui import Article, article_text
+from .text import article_text
+from .browser import browser_open_error
 
 
 def browser_status(source, batch):
     message = f'[{batch.state}] {batch.message}'
     if getattr(source, 'headless', False) and batch.state in {'login', 'error', 'unconfirmed'}:
-        message += ' · 背景模式：需手動登入／驗證或檢查頁面時，先關閉 APP，再執行 mythread browser --headed。'
+        message += ' · 背景模式：請返回首頁點「登入視窗」，手動完成登入／驗證後點「完成登入」。'
     return message
 
 
@@ -26,7 +27,7 @@ class BrowserTitle(Static):
     '''
 
     def __init__(self):
-        super().__init__('myThread · 瀏覽器唯讀實驗版', markup=False)
+        super().__init__('myThread · 唯讀瀏覽器版', markup=False)
 
 
 class BridgeList(ListView):
@@ -81,7 +82,13 @@ class BridgeList(ListView):
         self.pending_more = False
 
 
-class BrowserReader(Article):
+class BrowserReader(Screen):
+    BINDINGS = [('escape', 'app.pop_screen', '返回')]
+
+    def __init__(self, post):
+        super().__init__()
+        self.post = post
+
     def compose(self):
         yield BrowserTitle()
         with VerticalScroll():
@@ -110,7 +117,7 @@ class BrowserArticle(BrowserReader):
 
     def on_button_pressed(self, event):
         # stop() only stops bubbling; Textual also dispatches base-class handlers.
-        # Article's default handler would pop the newly pushed comments screen.
+        # BrowserReader's default handler would pop the new comments screen.
         event.prevent_default()
         event.stop()
         if event.button.id == 'comments':
@@ -240,11 +247,12 @@ class CommentsScreen(Screen):
 
 
 class BrowserApp(App):
-    TITLE = "myThread · 瀏覽器唯讀實驗版"
+    TITLE = "myThread · 唯讀瀏覽器版"
     BINDINGS = [("ctrl+q", "safe_quit", "離開"), ("ctrl+r", "read", "重新整理"),
-                ("ctrl+n", "next", "下一批"), ("ctrl+b", "open", "開啟瀏覽器")]
+                ("ctrl+n", "next", "下一批"), ("ctrl+b", "open", "登入視窗")]
     CSS = """
     Horizontal { height: 3; }
+    Button { min-width: 10; margin-right: 1; }
     #status { height: auto; min-height: 2; }
     #comments-status { height: auto; min-height: 2; }
     ListView { height: 1fr; border: round $primary; }
@@ -276,11 +284,12 @@ class BrowserApp(App):
     def compose(self):
         yield BrowserTitle()
         with Horizontal():
-            yield Button("開啟瀏覽器", id="open")
+            yield Button("登入視窗", id="open")
+            yield Button("完成登入", id="background", disabled=self.source.headless is True)
             yield Button("重新整理", id="read")
             yield Button("下一批", id="next")
             yield Button('關閉 APP', id='quit-app', variant='error')
-        yield Static("請開啟專用瀏覽器並手動登入，再按重新整理。", id="status", markup=False)
+        yield Static("首次使用請點「登入視窗」，完成後點「完成登入」回到背景閱讀。", id="status", markup=False)
         yield BridgeList()
         yield Footer()
 
@@ -314,18 +323,22 @@ class BrowserApp(App):
         status = self.query_one("#status", Static)
         status.update("載入中……")
         try:
-            if action in {"open", "startup"}:
+            if action in {'open', 'background'}:
+                self.posts_data = []
+                await self.query_one(ListView).clear()
+                status.update('正在切換專用瀏覽器……')
+                await self.source.switch_mode(action == 'background')
+                self.query_one('#background', Button).disabled = self.source.headless is True
+                if action == 'open':
+                    status.update('請在專用瀏覽器手動登入／完成驗證，然後點「完成登入」回到背景閱讀。')
+                    return
+            elif action == 'startup':
                 status.update('正在開啟專用瀏覽器……')
                 await self.source.open()
-                if action == 'open':
-                    status.update('瀏覽器正在背景執行；需要顯示視窗時，先關閉 APP，再執行 mythread browser --headed。'
-                                  if getattr(self.source, 'headless', False) else
-                                  '瀏覽器已開啟：請手動登入／完成驗證，再按重新整理。')
-                    return
                 status.update('瀏覽器已開啟，正在讀取文章……')
             batch = (await self.source.read(refresh=True) if action == 'read'
                      else await self.source.read(action == "next"))
-            if action == 'startup':
+            if action in {'startup', 'background'}:
                 # DOMContentLoaded may precede the rendered feed. Bounded retry,
                 # with no scrolling or automatic login/verification interaction.
                 for _ in range(10):
@@ -357,8 +370,8 @@ class BrowserApp(App):
                         view.focus()
                     else:
                         self.call_after_refresh(view.scroll_to, y=old_scroll, animate=False)
-        except Exception:
-            status.update("開啟失敗：請確認已安裝 Playwright Chromium，且沒有另一個實驗版使用同一設定檔。")
+        except Exception as exc:
+            status.update(browser_open_error(exc))
         finally:
             self.next_auto_at = time.monotonic() + 2
             self.busy = False

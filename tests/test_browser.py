@@ -5,7 +5,7 @@ from textual.widgets import Static
 
 from mythread.browser import BrowserSource, BrowserBatch, SNAPSHOT, SCROLL, classify, extract_posts
 from mythread.browser_ui import BrowserApp, BridgeList
-from mythread.tui import Article
+from mythread.browser_ui import BrowserReader as Article
 
 
 def row(code="ABC", text="中文\nhello"):
@@ -84,7 +84,7 @@ async def test_ui_read_next_and_readonly():
     async with app.run_test(size=(110, 35)) as pilot:
         await pilot.click("#open")
         await app.workers.wait_for_complete()
-        source.open.assert_awaited_once()
+        source.switch_mode.assert_awaited_once_with(False)
         await pilot.press("ctrl+r")
         await app.workers.wait_for_complete()
         source.read.assert_awaited_with(refresh=True)

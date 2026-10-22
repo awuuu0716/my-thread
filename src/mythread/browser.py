@@ -7,7 +7,20 @@ from urllib.parse import urlsplit
 
 from platformdirs import user_data_dir
 
-from .api import plain
+from .text import plain
+from .runtime import configure_browser_runtime
+
+
+def browser_open_error(exc):
+    """Map diagnostics to safe guidance without displaying browser logs or URLs."""
+    detail = str(exc).lower()
+    if any(term in detail for term in ('processsingleton', 'singletonlock', 'profile appears to be in use', 'user data directory is already in use')):
+        return '瀏覽器設定檔使用中：請先關閉另一個 myThread APP（包含背景執行的版本），再點「登入視窗」重試。'
+    if 'executable doesn' in detail or 'executable not found' in detail:
+        return '找不到 Chromium：原始碼版請執行 .\\.venv\\Scripts\\python.exe -m playwright install chromium；可攜版請完整解壓縮 ZIP。'
+    if 'timeout' in detail or 'net::' in detail:
+        return '瀏覽器開啟網站失敗或逾時：請檢查網路，再點「登入視窗」重試。'
+    return '瀏覽器啟動失敗：請先關閉其他 myThread APP 再重試；原始碼版請確認已安裝對應的 Chromium，可攜版請完整解壓縮。'
 
 
 SCROLL = r"""(reset = false) => {
@@ -160,20 +173,36 @@ class BrowserSource:
             if replies.page and not replies.page.is_closed():
                 await replies.page.close()
 
-    async def open(self):
+    async def switch_mode(self, headless):
+        """Restart only the owned context; leave authentication inside its profile."""
+        async with self.lock:
+            if self.headless == headless and self.page and not self.page.is_closed():
+                await self.open()
+                return
+            await self.close()
+            self.posts.clear()
+            self.headless = headless
+            await self.open()
+
+    async def open(self, *, start_url='https://www.threads.com/'):
         if self.page and not self.page.is_closed():
             if not self.headless:
                 await self.page.bring_to_front()
             return
         await self.close()
+        configure_browser_runtime()
         from playwright.async_api import async_playwright
         self.profile.mkdir(parents=True, exist_ok=True)
-        self.runtime = await async_playwright().start()
-        self.context = await self.runtime.chromium.launch_persistent_context(
-            self.profile, headless=self.headless, channel='chromium',
-            viewport={'width': 1280, 'height': 900}, accept_downloads=False)
-        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
-        await self.page.goto("https://www.threads.com/", wait_until="domcontentloaded", timeout=30000)
+        try:
+            self.runtime = await async_playwright().start()
+            self.context = await self.runtime.chromium.launch_persistent_context(
+                self.profile, headless=self.headless, channel='chromium',
+                viewport={'width': 1280, 'height': 900}, accept_downloads=False)
+            self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            await self.page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+        except BaseException:
+            await self.close()
+            raise
 
     async def read(self, next_batch=False, *, refresh=False):
         async with self.lock:

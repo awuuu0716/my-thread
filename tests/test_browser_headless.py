@@ -8,11 +8,11 @@ from mythread.cli import parser
 
 
 def test_browser_visibility_flags():
-    assert parser().parse_args(['browser']).headless is True
-    assert parser().parse_args(['browser', '--headless']).headless is True
-    assert parser().parse_args(['browser', '--headed']).headless is False
+    assert parser().parse_args([]).headless is True
+    assert parser().parse_args(['--headless']).headless is True
+    assert parser().parse_args(['--headed']).headless is False
     with pytest.raises(SystemExit):
-        parser().parse_args(['browser', '--headless', '--headed'])
+        parser().parse_args(['--headless', '--headed'])
 
 
 @pytest.mark.parametrize('headless', [True, False])
@@ -41,7 +41,7 @@ async def test_browser_launch_visibility_and_profile(monkeypatch, tmp_path, head
 
 def test_headless_login_message_has_manual_recovery():
     text = browser_status(BrowserSource(), BrowserBatch('login', message='尚未登入'))
-    assert '--headed' in text and '先關閉 APP' in text
+    assert '登入視窗' in text and '完成登入' in text
 
 
 def test_real_chromium_headless_persistent_profile(tmp_path):

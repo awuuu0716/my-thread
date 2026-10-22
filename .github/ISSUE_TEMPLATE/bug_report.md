@@ -12,7 +12,7 @@ assignees: ''
 
 - commit／版本：
 - OS、Python、Playwright 版本：
-- 模式：browser headless／browser headed／API／demo
+- 模式：headless／headed；原始碼／Windows 可攜版
 - 網站語言（瀏覽器模式）：
 
 ## 重現步驟

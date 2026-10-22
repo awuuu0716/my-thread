@@ -14,7 +14,8 @@
 
 - 瀏覽器模式只讀 UI／DOM；不匯出 Cookie、不讀密碼或內部 token、不逆向私有 API、不繞過驗證。
 - profile 包含登入狀態與瀏覽器快取，由 Chromium 管理；不能當成一般診斷附件。
-- API Token 存在系統 keyring，草稿是本機明文。API 發文須確認，網路結果不明時不自動重送。
+- 0.2 已移除 API／Token／OAuth／發文功能，不讀取或清理舊版 keyring 與草稿；legacy 版本的資料須分開管理。
+- 可攜版隨附 Python／Node／Chromium，需隨上游安全更新重新建置；目前沒有自動更新或程式碼簽章，不可宣稱已簽署。
 - CI 僅使用 mock／合成 HTML／暫存 profile，不應加入真實 Threads 憑證或上傳原始瀏覽器 artifacts。
 - `.gitignore` 是防誤提交措施，不是秘密掃描或權限控制。提交前仍需檢查 staged diff。
 
