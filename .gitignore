@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .env
+.env.*
+!.env.example
 dist/
 build/
 .tools/
@@ -10,3 +12,5 @@ build/
 playwright-report/
 test-results/
 screenshots/
+.coverage
+htmlcov/

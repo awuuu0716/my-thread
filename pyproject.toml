@@ -1,11 +1,21 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mythread-terminal"
 version = "0.1.0"
 description = "A personal, text-only Threads terminal client"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Communications",
+]
 requires-python = ">=3.11"
 dependencies = ["textual>=8.2.8,<9", "httpx>=0.28.1,<1", "keyring>=25.7,<26", "platformdirs>=4,<5"]
 

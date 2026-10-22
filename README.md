@@ -1,281 +1,130 @@
 # myThread Terminal
 
-## 瀏覽器橋接唯讀實驗版
+在 Terminal 閱讀 Threads 的個人用戶端，使用 Python 3.11+ 與 Textual。提供操作官方網頁的**瀏覽器唯讀實驗版**，以及使用官方 API 的帳號、搜尋與發文介面。這是非官方社群專案，未獲 Meta 背書。
 
-在 `experiment/browser-bridge` worktree 執行，與原版 API 模式分開：
+目前為 0.1.x 實驗階段，主要開發／人工試用環境為 Windows。網站 DOM 變更可能讓擷取失效，自動測試通過不代表 Threads 全功能保證。
+
+## 選擇模式
+
+| | 瀏覽器模式 | API 模式 | 離線示範 |
+| --- | --- | --- | --- |
+| 指令 | `mythread browser` | `mythread` | `mythread --demo` |
+| 資料來源 | 已登入的官方網頁 DOM | 官方 API | 內建虛構資料 |
+| 登入 | 專用 Chromium 手動登入 | User Access Token／OAuth | 不需要 |
+| 閱讀 | 目前動態、文章、已載入留言 | 自己／公開帳號文章、權限允許的搜尋 | 示範文章 |
+| 發文 | 不提供 | 預覽並確認後發布 | 模擬操作 |
+
+瀏覽器模式不需要 Meta App、App Secret、API Token、hosts 或 HTTPS callback。它不會賦予額外 API 權限，也不會自動按讚、追蹤、回覆或發文。
+
+## 快速開始
+
+取得本倉庫後，在倉庫根目錄執行。需要 Python 3.11+、網路連線及可手動登入 Threads 的帳號；建議終端大小至少 110×35。
+
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev,browser]'
+.\.venv\Scripts\python.exe -m pip install -e '.[browser]'
 .\.venv\Scripts\python.exe -m playwright install chromium
-.\.venv\Scripts\mythread.exe browser
-```
-
-1. 啟動後會自動在背景（headless）啟動專用 Chromium 並讀取文章，沿用既有登入狀態，不顯示視窗；若網頁尚在載入，會短暫重試。首次使用、登入失效或需要驗證時，先關閉 APP，再執行下方 `--headed` 指令，手動完成登入後按「重新整理」。之後關閉 APP，再用一般 `browser` 指令回到背景模式。「開啟瀏覽器」（Ctrl+B）在背景模式不會彈出視窗。
-2. 登入後回 Terminal 按「重新整理」（Ctrl+R），會真正重新載入瀏覽器網頁並回到頁首，清除先前累積的文章，再擷取新內容。留言頁也適用；「下一批」仍是捲動載入，不會重新整理。
-3. 按「下一批」（Ctrl+N）會尋找文章所在的捲動容器，每次捲動約八成可視高度並輪詢 DOM，找到新文章即停止，最多嘗試六段；跨捲動保留最多 2,000 篇文章，按 permalink 中的文章識別碼去重。沒有新增文章不代表已到動態底部，可稍後重試。
-4. Enter 閱讀已擷取全文，Esc 返回，Ctrl+Q 離開並關閉專用瀏覽器。網頁折疊文字仍需手動展開。
-
-Terminal 列表向下捲至距底部約一個畫面內（滾輪、拖曳捲軸或鍵盤捲動），會預載瀏覽器「下一批」，留言列表也適用。若正在讀取或冷卻中，保留一次請求，等可執行時自動讀取，不必再補滾一下。新文章接在列表末尾，保留目前閱讀位置；向上捲動閱讀記憶體中的舊文章並取消尚未執行的預載，不會反向捲動瀏覽器。這是接續載入，不是兩側捲軸百分比同步。完成後有兩秒冷卻；沒有新增文章時不會無限自動重試，稍後再向下滾動或按「下一批」即可。
-
-設定檔位於 `%LOCALAPPDATA%\mythread-browser\profile`，由 Chromium 自行保留登入狀態；不是日常瀏覽器設定檔，也不是原版 API 設定目錄。同一設定檔一次只能開啟一個實驗版。若要登出，請在專用瀏覽器操作；若要重設，先關閉實驗版，再刪除此專用目錄。此目錄包含登入資料，不要分享或提交 Git。
-
-```powershell
-# 顯示視窗，手動登入、處理驗證或檢查網站版面
+# 首次使用：可見瀏覽器中手動登入
 .\.venv\Scripts\mythread.exe browser --headed
-# 背景閱讀（預設），首頁與留言分頁都不顯示視窗
+```
+
+登入／驗證完成後按「重新整理」。關閉 APP，再開始背景閱讀，沿用登入狀態：
+
+```powershell
 .\.venv\Scripts\mythread.exe browser
 ```
 
-兩種模式共用上述專用設定檔，不匯出或搬移 Cookie。背景模式遇到驗證不會自動繞過或偷偷彈出視窗；Terminal 會提示切換 `--headed`。網站可能對背景模式有不同反應，仍需實站確認。使用 Playwright 的 Chromium 新 headless 模式，參考 [官方瀏覽器文件](https://playwright.dev/python/docs/browsers#chromium-new-headless-mode)。
+啟動會自動開啟背景瀏覽器並讀取文章。`--headless` 也可明確指定背景模式；`--headed` 顯示視窗。兩者共用專用設定檔，**不要同時執行**。遇到登入失效或驗證時，先關閉 APP，再以 `--headed` 啟動；程式不會自行繞過驗證或彈出視窗。
 
-不需 API Token、App Secret、hosts 或 HTTPS callback；程式不讀取 Cookie、密碼、內部 token、網路回應或私有 API。沒有自動按讚、追蹤、回覆或發文。推薦／追蹤切換與搜尋尚未實作，可先在瀏覽器手動切換頁面後重新整理。
+### Linux／macOS
 
-### 閱讀留言（瀏覽器模式）
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[browser]'
+.venv/bin/python -m playwright install chromium
+.venv/bin/mythread browser --headed
+# 登入後關閉，再啟動背景模式
+.venv/bin/mythread browser
+```
 
-在動態列表按 Enter 開啟文章，按 **C** 或「讀取留言」。程式使用相同登入設定檔另開該篇 permalink 分頁，保留首頁捲動位置。在留言列表按 Ctrl+R 重新擷取、Ctrl+N 或「更多留言」分段捲動；捲到底也會接續讀取。Enter 查看單則全文，Esc 返回；從留言列表返回文章時會關閉留言分頁。
+Linux 若缺少系統函式庫，可依 [Playwright 安裝說明](https://playwright.dev/python/docs/browsers)執行 `.venv/bin/python -m playwright install --with-deps chromium`；安裝系統套件可能需要管理權限。`--headed` 需要桌面顯示環境。Linux 自動測試已配置於 CI；Linux／macOS 人工登入尚未全面驗證。
 
-只擷取網頁已載入、能辨識公開 permalink 的討論項目，排除原文和原文前的討論，以及具有可辨識標題的推薦區。不宣稱取得全部留言、留言總數或正確的巢狀回覆層級。網頁折疊的回覆需在專用瀏覽器手動展開後重新整理；程式不自動點擊回覆或送出。若沒有擷取到留言，會顯示未確認狀態，不把版面失效或尚未載入當成「沒有留言」。實站 DOM 尚待校準，推薦區沒有標題等情況仍可能混入其他文章。
+## 操作
 
-留言功能已加入模擬資料來源、Textual pilot 與 Chromium 合成 DOM 測試；尚未完成登入後的 Threads 留言實站驗證。
+| 操作 | 按鈕／快捷鍵 | 行為 |
+| --- | --- | --- |
+| 重新整理 | Ctrl+R | 真正重新載入目前網頁、回頂端、重建列表 |
+| 下一批／更多留言 | Ctrl+N | 分段捲動瀏覽器，合併與去重 |
+| 閱讀文章／單則留言 | Enter | 顯示已擷取文字與原文連結 |
+| 讀取留言 | 文章畫面 C | 另開討論分頁，保留首頁位置 |
+| 返回 | Esc | 回上一畫面；離開留言時停止讀取並關閉留言分頁 |
+| 開啟瀏覽器 | Ctrl+B | 可見模式叫出視窗；背景模式保持背景執行 |
+| 關閉 APP | Ctrl+Q／紅色按鈕 | 清理專用瀏覽器；操作中可能提示稍候 |
 
-資料來源在 `browser.py`，唯讀介面在 `browser_ui.py`；API 原流程保持獨立。擷取以公開文章連結和文章容器／文字節點為依據，不使用整頁 body 文字。無法辨識版面會顯示擷取失敗，不假稱空結果；登入、載入中與明確空結果各有狀態。引用貼文等含多個文章連結的歧義容器暫時略過，以避免作者與內容混合。網站 DOM 可能變更，仍需登入後實站校準。
+向下捲至距底部約一個畫面時預載下一批。忙碌／冷卻中的請求保留一次，向上捲會取消待執行的預載。這是接續載入，**不是兩邊捲軸百分比同步**。每個列表最多保留 2,000 篇；沒有新增不代表已到底。
 
-測試：` .\.venv\Scripts\python.exe -m pytest -q`。瀏覽器測試包含真實 Chromium 上的**本機合成 HTML**，以及模擬資料來源與 Textual pilot；不代表 Threads 實站驗證。需先安裝上述 browser extra 與 Chromium。
+留言只包含已載入、可辨識公開連結的討論項目；不推定完整留言數或巢狀層級。單次留言讀取設有時間上限，載入中可按返回。網站顯示「部分回覆無法顯示」時，程式無法補出未載入內容。
 
-持久化瀏覽器使用方式參考 [Playwright 官方文件](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context)。
+## 資料與隱私
 
-以 Meta Threads 官方 API 製作的個人純文字 Terminal 用戶端。Python 3.11+，目前以 Windows 為主要開發環境。
+| 資料 | 儲存位置／行為 |
+| --- | --- |
+| 瀏覽器登入與快取 | `platformdirs.user_data_dir("mythread-browser")/profile`；Windows 通常為 `%LOCALAPPDATA%\mythread-browser\profile` |
+| 瀏覽器文章／留言列表 | 程式記憶體；不另存全文檔案，Chromium 仍可能自行快取網頁與媒體 |
+| API Token | 系統 keyring；不可用時拒絕保存，不退回明文 |
+| API 草稿、偏好、已讀 ID | `platformdirs.user_config_path("mythread")`；草稿為明文 |
 
-## 快速試用（不用 Meta 帳號）
+程式不讀取／輸出 Cookie、密碼或網站內部 token，不攔截網路回應、不使用私有 API。瀏覽器仍會正常載入媒體；Terminal 純文字顯示不代表瀏覽器不下載圖片。
 
-在本專案資料夾執行 PowerShell：
+專用 profile 不是日常 Chrome 設定檔。登出請用 `--headed` 在 Threads 網頁操作；重設前先關閉 APP，再移除專用 profile（會失去該 profile 登入狀態）。不要把 profile、完整 DOM、憑證、實際草稿或未去識別的截圖提交至 Git／Issue。見 [安全政策](SECURITY.md)。
+
+## 已知限制與排錯
+
+| 現象 | 處理方式 |
+| --- | --- |
+| 找不到 Chromium／啟動失敗 | 用同一 `.venv` 安裝 Chromium；確認沒有另一個 APP 佔用 profile |
+| 背景無資料、要求登入／驗證 | 關閉後用 `browser --headed`，手動完成再重啟 |
+| `error`／無法辨識原文 | 用可見模式確認頁面；回報 DOM 診斷數字、版本與步驟 |
+| `loading`／`unconfirmed` | 稍候重試；代表載入中或未確認，不等於沒有文章／留言 |
+| 重新整理後舊文章消失 | 預期行為：重新整理會清除先前合併列表 |
+| 下一批沒有新增 | 可能在尾端、仍載入或選擇器失效；不會無限自動重試 |
+| 混入作者標籤／輪播頁碼 | 已知 DOM 限制，歡迎提供匿名合成 HTML 案例 |
+
+引用／多連結容器可能略過；缺少推薦區標題時，留言列表可能混入其他文章。推薦／追蹤切換、網頁搜尋、回覆層級解析尚未提供專用操作。
+
+折疊文字可在 `--headed` 手動展開；注意 Ctrl+R 會重載，可能重設展開狀態，並非單純重抓目前 DOM。保留展開狀態的獨立擷取操作列為後續改善項目。
+
+## API 模式與離線示範
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
+# 示範不需 Chromium 或帳號
 .\.venv\Scripts\mythread.exe --demo
-```
-
-若已建立虛擬環境並安裝，直接執行最後一行即可。示範資料不連線、不發文，示範草稿與正式草稿分開保存。
-
-## 已實作功能
-
-- 我的文章、指定公開帳號文章、游標分頁、全文閱讀。
-- 關鍵字搜尋，以及搜尋結果與公開帳號文章的混合推薦。
-- 純文字顯示，不下載圖片或影片；保留附件類型提示和原文網址。
-- 多行文字編輯、本機草稿、發布前預覽與確認。
-- OAuth 登入、匯入既有 User Access Token、狀態檢查、長效 Token 更新、登出。
-- Terminal 內的帳號畫面：遮罩 Token 輸入、更新登入、登出後重新登入。
-- Token 存在系統憑證庫；Windows 使用 Credential Manager。憑證庫不可用時拒絕保存，不退回明文。
-- 網路錯誤不自動重送發文；結果不明時保留草稿並停用當次編輯器的發布按鈕。
-
-不提供官方「為你推薦／追蹤中」動態、按讚、私訊、通知或回覆管理。提供由搜尋結果和選填公開帳號組成的本機推薦，資料範圍受 Meta 的權限與帳號可用性限制。
-
-## 在操作介面登入／登出
-
-直接執行 `.\.venv\Scripts\mythread.exe`。沒有 Token 或本機記錄已過期時，程式仍可開啟，並顯示登入畫面。
-
-- 貼上 **Threads User Access Token**，按 Enter 或「登入／更新」。輸入會遮罩；透過 `/me` 驗證後存入系統憑證庫並讀取文章。
-- 已登入時，點主畫面下方「帳號」或按 **Ctrl+L**，即可貼入含新權限的 Token 或切換帳號。更新成功會清除舊草稿與已讀紀錄，保留推薦來源與關鍵字。
-- 無效 Token 或憑證庫保存失敗時，保留原本連線，畫面顯示錯誤，Token 輸入欄會清空。
-- 點「登出」，再點「確認登出」。會清除本機 Token、草稿、已讀紀錄、文章列表與記憶體快取，不撤銷 Meta 端 App 授權。可留在同一畫面重新登入。
-- 讀取文章期間請稍候再開啟帳號；發文編輯畫面需先返回主畫面。示範模式停用真實帳號登入，請退出後以正式模式啟動。
-
-匯入 Token 不會自動增加權限；仍需先在 Meta 後台取得所需權限。此登入方式不需 App Secret，也不需設定 OAuth callback。
-
-## 本機推薦動態
-
-啟動 `mythread`，點下方「本機推薦」（或 Ctrl+F）。第一次會開啟設定：
-
-1. 填入搜尋關鍵字，例如 `比特幣, 貓`，最多 20 個，以逗號或換行分隔。每個詞獨立搜尋，再合併結果，不是要求文章同時包含所有詞。
-2. 公開帳號可以留白；若有固定作者也可加入，最多 10 個，填 username 而非網址。
-3. 點「儲存並搜尋」，開始混合閱讀。隨時可按「推薦設定」調整。
-
-這是 **本機排序的 API 搜尋與帳號文章，不是 Threads 官方推薦首頁**。沒有自動取得追蹤名單，也不會發出追蹤操作。關鍵字會送往 Meta 的 `GET /keyword_search`（`q`、`search_type=TOP`、`fields`、`limit=20`），需要 `threads_keyword_search`。只有加入公開帳號時才需要 `threads_profile_discovery`。搜尋成功或空結果不代表全站搜尋權限已核准；結果範圍以 Meta 的權限、審查狀態與實際回應為準。
-
-請到 Meta 的 Threads「權限與功能」加入 `threads_keyword_search`，依控制台提示處理測試或審查要求，再產生並匯入含該權限的新 Token：
-
-```powershell
+# API：隱藏輸入 Token，再開啟介面
 .\.venv\Scripts\mythread.exe login --token
-.\.venv\Scripts\mythread.exe doctor --keyword "貓"
-```
-
-OAuth 使用者可執行 `login --search`；需要兩種來源時執行 `login --search --discovery`。舊版保存的興趣關鍵字現在也會作為搜尋來源，公開帳號可清空。
-
-排序依未讀優先、時間新鮮度、關鍵字命中加分，並降低同一作者連續佔據前列的機會。文章旁與全文底部顯示本機推薦理由。開啟全文才記錄已讀；下次更新重新排序，已讀文章仍可出現。
-
-每頁最多 20 篇；Ctrl+N 讀取後續候選，Ctrl+R 回到第一頁並重排。公開帳號使用 API 分頁游標；關鍵字每次取最多 20 筆，搜尋 API 的游標支援未確認，因此搜尋只對已取得的合併結果做本機分頁，不保證涵蓋全部相關文章。合併時按文章 ID 去重，重複命中保留搜尋來源。最多同時讀取 3 個來源；請求結果在記憶體快取 60 秒，因此短時間更新不保證取得剛發出的文章。單一來源失敗時顯示通知並保留其他來源；全部失敗時保留原列表，可稍後更新重試。
-
-來源與關鍵字存入本機 `feed.json`；最近 2,000 個已讀文章 ID 與閱讀時間存入 `feed-seen.json`。不把文章全文快取到磁碟、不傳送閱讀紀錄到 Meta。登出或重新登入時清除已讀紀錄；來源與關鍵字保留為此電腦的偏好設定。示範模式使用獨立設定目錄並預設三個虛構來源，適合無權限時體驗。
-
-## 最快連接真實帳號：匯入 Token
-
-尚未建立 Meta App 時，可在 Terminal 查看逐步指引：
-
-```powershell
-.\.venv\Scripts\mythread.exe setup
-```
-
-先在 Meta 開發者控制台建立含 Threads use case 的 App，設定自己的測試帳號，依控制台流程取得 **Threads User Access Token**。
-
-- 基本閱讀：`threads_basic`
-- 發文：另需 `threads_content_publish`
-- 公開帳號閱讀：另需 `threads_profile_discovery`
-- 關鍵字搜尋：另需 `threads_keyword_search`
-
-```powershell
-.\.venv\Scripts\mythread.exe login --token
-.\.venv\Scripts\mythread.exe doctor
 .\.venv\Scripts\mythread.exe
 ```
 
-Token 以隱藏輸入貼上，不放命令列參數、shell history、原始碼或 `.env`。匯入的 Token 到期時間與種類未知，因此不自動更新；失效後重新匯入或使用 OAuth 登入。
+API 模式保留 OAuth、公開帳號、搜尋、本機排序及確認後發文。搜尋成功不代表全站搜尋權限已核准；結果受 Meta 審查與權限限制。本機推薦不是官方首頁動態。完整操作見 [API 指南](docs/api.md)，其 HTTPS／OAuth 設定與瀏覽器模式無關。
 
-`doctor` 讀取本機憑證狀態、目前帳號與自己的文章第一頁。它不更新 Token、不發文，也不把文章內容或 Token 放進報告；沒有文章的空列表仍算讀取成功。預設不測公開帳號，需指定 `--profile`。
-
-```powershell
-.\.venv\Scripts\mythread.exe doctor --profile threads
-.\.venv\Scripts\mythread.exe doctor --keyword "貓"
-.\.venv\Scripts\mythread.exe doctor --json
-```
-
-診斷失敗時 exit code 為 1；通過為 0。通過只代表已執行的讀取檢查成功，**不代表發文權限或未測的公開帳號權限已通過**。JSON 報告含帳號名稱，分享前請確認是否需要移除。
-
-## OAuth 登入
-
-### 不依賴外網 Tunnel：本機 HTTPS（Meta 官方範例方式）
-
-Meta 的[官方範例](https://github.com/fbsamples/threads_api/blob/main/README.md)使用 hosts 名稱對應與本機 HTTPS，並指出 Threads callback 不支援直接填 `localhost`。這個專案提供固定網址 `https://threads-sample.meta:8765/callback`；不需購買此網域，它只在本機 hosts 指向 `127.0.0.1`。
-
-先安裝本機憑證產生套件（目前工作環境已安裝）：
+## 開發與驗證
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install "cryptography>=43"
-```
-
-接著以**同一個 Windows 帳號開啟管理員 PowerShell**，切換到本專案資料夾，執行一次：
-
-```powershell
-.\scripts\setup_local_https.ps1
-```
-
-這個腳本會變更兩項系統設定：在 Windows hosts 加入 `127.0.0.1 threads-sample.meta`，並將僅適用此主機名稱、效期 30 天的自簽伺服器憑證加入目前使用者的信任憑證庫。它不是可簽發其他憑證的 CA；私鑰位於已忽略的 `.tools/callback-key.pem`，ACL 限制目前使用者存取。**開發代理不會自動執行此管理員腳本。**若 PowerShell 執行原則禁止腳本，請依你的電腦管理政策處理，不需永久修改執行原則。
-
-回到一般 PowerShell：
-
-```powershell
-.\.venv\Scripts\mythread.exe login --local-https --search --discovery
-```
-
-輸入 Threads App ID，把程式顯示的 callback 網址加入 Meta 的 Threads Redirect Callback URLs 並儲存，再按 Enter、隱藏輸入 App Secret、完成瀏覽器授權。程序會自動接收回應並保存 Token。此網址固定可重用，但登入期間必須保持程序執行；請在同一台電腦的瀏覽器完成授權。憑證過期後需重新執行設定腳本；停止使用可移除 hosts 中標有 `myThread local OAuth` 的項目，及目前使用者信任根憑證庫中對應的 `threads-sample.meta` 憑證。
-
-目前環境測試 Cloudflare 時發生未知簽發者的 TLS 錯誤，所以建議使用這個本機模式；不關閉 TLS 驗證。
-
-### 沒有 HTTPS 網址：臨時 Tunnel 登入
-
-Windows 可使用專案內的 Cloudflare Quick Tunnel，不需自己的網域或 Cloudflare 帳號。第一次安裝輔助程式（從 Cloudflare 官方 GitHub release 下載，並核對 release 提供的 SHA-256）：
-
-```powershell
-.\.venv\Scripts\python.exe scripts/install_cloudflared.py
-.\.venv\Scripts\mythread.exe login --tunnel --search --discovery
-```
-
-工具存在 `.tools/cloudflared.exe`，不修改系統 PATH、不安裝 Windows 服務。程式也支援已安裝在 PATH 中的 `cloudflared`。
-
-1. 在 Terminal 輸入 **Threads App ID**。
-2. 等待產生 `https://…trycloudflare.com/callback`。
-3. 到 Meta 的 Threads 使用案例設定，將完整網址加入 **OAuth 重新導向網址／Redirect Callback URLs**，儲存後回 Terminal 按 Enter。
-4. 隱藏輸入 **Threads App Secret**。瀏覽器會開啟，明確要求搜尋與公開帳號權限。
-5. 完成授權後自動驗證 `state`、接收授權碼、交換長效 Token，存入系統憑證庫；不需要複製 callback URL。回到 Terminal 查看結果，再執行 `doctor --keyword "貓"`。
-
-本機僅開啟 `127.0.0.1` 的專用 callback 接收器，對外只有固定 callback 與健康檢查頁，不提供本機檔案。Cloudflare 會代理 HTTPS 授權回應；接收器不記錄 callback query、不在頁面回顯授權碼，App Secret 與 Token 交換直接連線 Meta。
-
-每次執行會取得新網址，需重新加入 Meta 白名單。登入結束、失敗或 Ctrl+C 時會關閉 tunnel；舊網址失效，可從 Meta 後台移除。Quick Tunnel 僅供開發測試，Meta 是否接受該網址仍需實際在後台確認。[Cloudflare 官方說明](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
-
-### 已有自己的 HTTPS callback
-
-這是自用 App 的 OAuth 流程，不是可安全內嵌共用 App Secret 的公開 CLI 發行架構。
-
-1. 在 Meta App 設定 Threads OAuth redirect URI。使用自己控制的 HTTPS callback，不能填第三方網站；此程式要求不含 query 或 fragment。以控制台接受的設定為準，不假設 HTTP localhost 可用。
-2. callback 頁面需保留網址中的 `code`、`state`，不要自動跳轉清除。使用簡單的 HTTPS 頁面即可，不需由頁面交換 Token；請停用記錄 query string 的存取日誌及第三方分析腳本。
-3. 執行 `configure` 輸入 Threads App ID 和完全相同的 callback URL。
-4. 執行 `login`，以隱藏輸入提供 **Threads App Secret**。Secret 只留在本次程序記憶體，也可用 `THREADS_APP_SECRET` 環境變數提供。
-5. 瀏覽器完成授權後，複製完整 callback 網址並貼回 Terminal 的隱藏輸入。程式檢查網址與隨機 `state`，再交換長效 Token。
-
-```powershell
-.\.venv\Scripts\mythread.exe configure
-.\.venv\Scripts\mythread.exe login
-# 要讀其他公開帳號，確認 App 有相應權限後改用：
-.\.venv\Scripts\mythread.exe login --discovery
-```
-
-此手動模式需貼回 callback 網址；使用 `--tunnel` 則自動接收。一般使用者可用性、App Review、正式模式需求須依 Meta 控制台與最新政策完成；OAuth 仍待使用者完成真實 App 授權驗證。
-
-OAuth Token 依 `expires_in` 保存到期時間。在啟動或查詢狀態時，若長效 Token 距離到期小於七日、且建立或上次更新已超過 24 小時，嘗試更新。這不是背景排程；長期不啟動導致過期須重新登入。長時間開著 TUI 遇到授權失效時也需退出重新登入。
-
-```powershell
-.\.venv\Scripts\mythread.exe refresh
-.\.venv\Scripts\mythread.exe logout
-```
-
-登出清除本機 Token 與草稿，不撤銷 Meta 端 App 授權；需在 Threads 的網站權限設定撤銷。重新登入也會清除舊草稿，避免跨帳號誤發。
-
-## 鍵盤操作
-
-| 操作 | 按鍵 |
-| --- | --- |
-| 選擇文章 | ↑ / ↓ |
-| 閱讀全文 | Enter |
-| 切換欄位、按鈕 | Tab / Shift+Tab |
-| 返回／取消預覽 | Esc |
-| 更新目前來源 | Ctrl+R |
-| 下一頁 | Ctrl+N |
-| 撰寫文章 | Ctrl+W |
-| 本機推薦 | Ctrl+F |
-| 登入／更新 Token／登出 | Ctrl+L |
-| 離開 | Ctrl+Q |
-
-在公開帳號欄輸入完整 username（例如 `threads`），按 Enter 或「讀取帳號」。目前頁面顯示 20 筆；更新回到該來源第一頁。支援一般 80×24 以上終端，建議 Windows Terminal 110×35。
-
-草稿以明文存於使用者設定目錄（Windows 通常為 `%LOCALAPPDATA%\mythread`），包含你輸入的文章內容；Token 不在此目錄。輸出當作純文字，不解析遠端內容的 Rich markup，並移除終端控制字元。
-
-## 測試
-
-```powershell
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,browser]'
+.\.venv\Scripts\python.exe -m playwright install chromium
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-測試使用 HTTP mock 與 Textual headless pilot，覆蓋 OAuth state/callback 驗證、權限錯誤、分頁、發布結果不明不重試、憑證儲存、全文閱讀、草稿與發布確認，以及推薦去重、排序、來源設定、已讀保存、快取和部分來源失敗。測試不使用真實 Token，不會發文。
+自動測試使用 HTTP mock、Textual pilot 與真實 Chromium 上的合成 HTML，不使用真實 Threads 帳號、不發文。人工操作回報已確認部分 Windows 可見模式文章與留言可讀；headless 實站及各種網站版面仍需另行驗證。
 
-實機讀取驗證：目前帳號與自己的文章可讀取；搜尋功能開發時，`doctor --keyword "貓"` 回傳需要 `threads_keyword_search` 的權限錯誤。推薦與搜尋已通過模擬及鍵盤操作測試，真實搜尋結果仍待權限解決後驗證。
+CI 配置在 Windows／Linux、Python 3.11／3.13 執行測試與套件建置檢查；**配置不等於已在遠端通過**。測試數量以 pytest／CI 輸出為準。
 
-## 程式結構
+- [貢獻指南](CONTRIBUTING.md)：環境、PR、測試與匿名 fixture
+- [架構與資料流](docs/architecture.md)：來源分離、擷取與生命週期
+- [維護與發行](docs/maintaining.md)：驗收、版本與倉庫設定
+- [變更紀錄](CHANGELOG.md)
 
-```text
-src/mythread/
-  cli.py       命令列與登入流程
-  auth.py      OAuth state、callback 與 Token 交換
-  api.py       Threads HTTP client、錯誤處理與離線資料
-  storage.py   系統憑證庫與本機設定／草稿
-  tui.py       Textual 互動介面
-  feed.py      公開帳號聚合、去重分頁與本機推薦排序
-  feed_ui.py   推薦來源與興趣設定
-  account_ui.py Token 登入與登出畫面
-tests/         API、OAuth、儲存與互動流程測試
-```
+## 授權
 
-## 官方參考與驗證範圍
-
-查閱日期：2026-10-22。
-
-- [Meta 官方 Threads API Postman collection](https://www.postman.com/meta/threads/collection/dht3nzz/threads-api)
-- [官方 API 請求、授權與 Token 交換範例](https://www.postman.com/meta/threads/documentation/dht3nzz/threads-api)
-- [官方純文字發布範例](https://www.postman.com/meta/threads/request/jkuogpa/1-1-create-text-container)
-- [官方關鍵字搜尋範例](https://www.postman.com/meta/threads/request/34203612-b3b2c12a-7ce6-4d86-a3c6-6d31e3b66ea1)
-- [Meta 開發者文件入口](https://developers.facebook.com/docs/threads/)
-- [Textual widgets](https://textual.textualize.io/guide/widgets/) / [測試指南](https://textual.textualize.io/guide/testing/)
-
-實作依 Meta 維護的 Postman 範例使用 `graph.threads.net`：`GET /me`、`GET /me/threads`、`GET /profile_posts`，以及 `POST /me/threads` 搭配 `media_type=TEXT`、`auto_publish_text=true`。API 主機集中在 `api.py`，沒有自動追隨分頁 URL 或 HTTP redirects。Meta 文件主站查閱時回傳 429；最新額度、文字限制與權限審核以 Meta 實際回應及最新文件為準。
-
-已以匯入 Token 驗證自己的帳號與文章。待真實帳號驗證：OAuth 網址與 callback 設定、Token 交換與更新、公開帳號閱讀權限及推薦資料、實際發文與中文長度限制。程式不自動拆文或截斷文字；超出 API 限制時保留草稿並顯示錯誤。
+採用 [MIT License](LICENSE)。第三方套件各自保留其授權；本授權不涵蓋 Threads 品牌或使用者內容。
