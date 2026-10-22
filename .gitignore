@@ -6,3 +6,7 @@ __pycache__/
 dist/
 build/
 .tools/
+.browser-data/
+playwright-report/
+test-results/
+screenshots/

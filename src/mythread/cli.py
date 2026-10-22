@@ -16,6 +16,7 @@ def parser():
     root = argparse.ArgumentParser(description="myThread：純文字 Threads Terminal 用戶端")
     root.add_argument("--demo", action="store_true", help="啟動離線示範，不需 Meta 帳號")
     commands = root.add_subparsers(dest="command")
+    commands.add_parser("browser", help="開啟瀏覽器橋接唯讀實驗版，不需 API Token")
     commands.add_parser("setup", help="顯示第一次建立 Meta Threads App 與取得 Token 的步驟")
     doctor = commands.add_parser("doctor", help="唯讀檢查憑證、帳號與文章讀取，不發文")
     doctor.add_argument("--profile", default="", help="額外測試指定公開帳號，例如 threads")
@@ -59,6 +60,15 @@ async def credentials(store):
 
 
 async def run(args, store):
+    if args.command == "browser":
+        from .browser import BrowserSource
+        from .browser_ui import BrowserApp
+        source = BrowserSource()
+        try:
+            await BrowserApp(source).run_async()
+        finally:
+            await source.close()
+        return
     if args.demo:
         from .tui import ThreadsApp
         # Demo drafts must not overwrite the real account's drafts.

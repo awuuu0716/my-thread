@@ -12,6 +12,7 @@ dependencies = ["textual>=8.2.8,<9", "httpx>=0.28.1,<1", "keyring>=25.7,<26", "p
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
 local-https = ["cryptography>=43"]
+browser = ["playwright>=1.55,<2"]
 
 [project.scripts]
 mythread = "mythread.cli:main"

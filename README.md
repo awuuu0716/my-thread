@@ -1,5 +1,33 @@
 # myThread Terminal
 
+## 瀏覽器橋接唯讀實驗版
+
+在 `experiment/browser-bridge` worktree 執行，與原版 API 模式分開：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,browser]'
+.\.venv\Scripts\python.exe -m playwright install chromium
+.\.venv\Scripts\mythread.exe browser
+```
+
+1. 按「開啟瀏覽器」（Ctrl+B），在可見的專用 Chromium 手動登入 Threads。驗證碼與登入驗證也由使用者處理。
+2. 登入後回 Terminal 按「重新讀取」（Ctrl+R），擷取目前 DOM 中的文章，顯示作者、文字與 permalink。這是重新擷取，不會重新整理網頁或回到頁首。
+3. 按「下一批」（Ctrl+N）會尋找文章所在的捲動容器，每次捲動約八成可視高度並輪詢 DOM，找到新文章即停止，最多嘗試六段；跨捲動保留最多 2,000 篇文章，按 permalink 中的文章識別碼去重。沒有新增文章不代表已到動態底部，可稍後重試。
+4. Enter 閱讀已擷取全文，Esc 返回，Ctrl+Q 離開並關閉專用瀏覽器。網頁折疊文字仍需手動展開。
+
+Terminal 列表向下捲到底（滾輪、拖曳捲軸或鍵盤捲動）會自動觸發瀏覽器「下一批」。新文章接在列表末尾，保留目前閱讀位置；向上捲動閱讀記憶體中的舊文章，不會反向捲動瀏覽器。這是接續載入，不是兩側捲軸百分比同步。操作期間不重複請求，完成後有兩秒冷卻；沒有新增文章時不會無限自動重試，稍後再向下滾動或按「下一批」即可。
+
+設定檔位於 `%LOCALAPPDATA%\mythread-browser\profile`，由 Chromium 自行保留登入狀態；不是日常瀏覽器設定檔，也不是原版 API 設定目錄。同一設定檔一次只能開啟一個實驗版。若要登出，請在專用瀏覽器操作；若要重設，先關閉實驗版，再刪除此專用目錄。此目錄包含登入資料，不要分享或提交 Git。
+
+不需 API Token、App Secret、hosts 或 HTTPS callback；程式不讀取 Cookie、密碼、內部 token、網路回應或私有 API。沒有自動按讚、追蹤、回覆或發文。推薦／追蹤切換、搜尋與回覆閱讀尚未實作，可先在瀏覽器手動切換頁面後重新讀取。
+
+資料來源在 `browser.py`，唯讀介面在 `browser_ui.py`；API 原流程保持獨立。擷取以公開文章連結和文章容器／文字節點為依據，不使用整頁 body 文字。無法辨識版面會顯示擷取失敗，不假稱空結果；登入、載入中與明確空結果各有狀態。引用貼文等含多個文章連結的歧義容器暫時略過，以避免作者與內容混合。網站 DOM 可能變更，仍需登入後實站校準。
+
+測試：` .\.venv\Scripts\python.exe -m pytest -q`。瀏覽器測試包含真實 Chromium 上的**本機合成 HTML**，以及模擬資料來源與 Textual pilot；不代表 Threads 實站驗證。需先安裝上述 browser extra 與 Chromium。
+
+持久化瀏覽器使用方式參考 [Playwright 官方文件](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context)。
+
 以 Meta Threads 官方 API 製作的個人純文字 Terminal 用戶端。Python 3.11+，目前以 Windows 為主要開發環境。
 
 ## 快速試用（不用 Meta 帳號）
