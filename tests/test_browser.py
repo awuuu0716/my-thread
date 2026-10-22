@@ -26,6 +26,41 @@ def test_states(snapshot, state):
     assert classify(snapshot).state == state
 
 
+@pytest.mark.parametrize('state', ['ready', 'login'])
+async def test_startup_opens_browser_then_reads_automatically(state):
+    calls = []
+    source = AsyncMock()
+
+    async def open_browser():
+        calls.append('open')
+
+    async def read(next_batch):
+        calls.append(('read', next_batch))
+        return BrowserBatch(state, extract_posts([row()]) if state == 'ready' else [], 'test status')
+
+    source.open.side_effect = open_browser
+    source.read.side_effect = read
+    app = BrowserApp(source)
+    async with app.run_test(size=(110, 35)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert calls == ['open', ('read', False)]
+        assert len(app.posts_data) == (1 if state == 'ready' else 0)
+        assert state in str(app.query_one('#status', Static).render())
+
+
+async def test_startup_waits_for_rendered_feed():
+    source = AsyncMock()
+    source.read.side_effect = [BrowserBatch('loading'), BrowserBatch('ready', extract_posts([row()]))]
+    app = BrowserApp(source)
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        source.open.assert_awaited_once()
+        assert source.read.await_count == 2
+        assert len(app.posts_data) == 1
+
+
 async def test_virtual_list_retention_and_duplicates():
     source = BrowserSource()
     source.page = AsyncMock()
@@ -45,13 +80,14 @@ async def test_virtual_list_retention_and_duplicates():
 async def test_ui_read_next_and_readonly():
     source = AsyncMock()
     source.read.return_value = BrowserBatch("ready", extract_posts([row()]), "完成")
-    app = BrowserApp(source)
+    app = BrowserApp(source, auto_start=False)
     async with app.run_test(size=(110, 35)) as pilot:
         await pilot.click("#open")
         await app.workers.wait_for_complete()
         source.open.assert_awaited_once()
         await pilot.press("ctrl+r")
         await app.workers.wait_for_complete()
+        source.read.assert_awaited_with(refresh=True)
         assert len(app.posts_data) == 1
         await pilot.press("enter")
         assert isinstance(app.screen, Article)
@@ -92,7 +128,7 @@ async def test_terminal_scroll_loads_more_without_rebuilding_or_looping():
     source = AsyncMock()
     source.read.side_effect = [BrowserBatch('ready', first),
                               BrowserBatch('ready', first + extract_posts([row('NEW')]))]
-    app = BrowserApp(source)
+    app = BrowserApp(source, auto_start=False)
     async with app.run_test(size=(100, 25)) as pilot:
         app.action_read()
         await app.workers.wait_for_complete()
@@ -112,6 +148,34 @@ async def test_terminal_scroll_loads_more_without_rebuilding_or_looping():
         # Upward scrolling and layout changes do not request another browser batch.
         view.scroll_home(animate=False)
         await pilot.pause()
+        assert source.read.await_count == 2
+
+
+@pytest.mark.parametrize('busy', [False, True])
+async def test_near_bottom_prefetch_survives_cooldown_without_another_scroll(busy):
+    import time
+    posts = extract_posts([row(str(i), '正文\n' * 10) for i in range(5)])
+    source = AsyncMock()
+    source.read.return_value = BrowserBatch('ready', posts)
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(100, 25)) as pilot:
+        app.action_read()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        view = app.query_one(BridgeList)
+        app.next_auto_at = time.monotonic() + .2
+        app.busy = busy
+        view.scroll_to(y=view.max_scroll_y - 5, animate=False)
+        await pilot.pause(.05)
+        assert view.scroll_y < view.max_scroll_y
+        assert source.read.await_count == 1
+        app.busy = False
+        await pilot.pause(.4)
+        await app.workers.wait_for_complete()
+        assert source.read.await_count == 2
+        source.read.assert_awaited_with(True)
+        # No new rows does not cause an automatic retry loop.
+        await pilot.pause(.3)
         assert source.read.await_count == 2
 
 
