@@ -1,6 +1,7 @@
 """Read-only DOM bridge. Never inspect network responses or browser credentials."""
 import asyncio
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -184,6 +185,28 @@ class BrowserSource:
             self.headless = headless
             await self.open()
 
+    async def recover(self):
+        """Recover a closed browser headlessly using its existing login profile."""
+        async with self.lock:
+            if not self.page or self.page.is_closed():
+                self.posts.clear()
+                self.headless = True
+            await self.open()
+
+    async def relogin(self):
+        """Discard only this app's dedicated profile after releasing Chromium."""
+        async with self.lock:
+            profile = self.profile.absolute()
+            # Never follow a redirected profile directory when removing data.
+            if profile.name != 'profile' or profile.resolve() != profile:
+                raise RuntimeError('Unsafe browser profile path')
+            await self.close()
+            self.posts.clear()
+            if profile.exists():
+                shutil.rmtree(profile)
+            self.headless = False
+            await self.open()
+
     async def open(self, *, start_url='https://www.threads.com/'):
         if self.page and not self.page.is_closed():
             if not self.headless:
@@ -207,7 +230,7 @@ class BrowserSource:
     async def read(self, next_batch=False, *, refresh=False):
         async with self.lock:
             if not self.page or self.page.is_closed():
-                return BrowserBatch("closed", message="請先開啟瀏覽器。")
+                return BrowserBatch("closed", message="瀏覽器已關閉，請點「恢復讀取」重新開啟並讀取文章。")
             try:
                 if urlsplit(self.page.url).hostname not in {"www.threads.com", "threads.com", "www.threads.net", "threads.net"}:
                     return BrowserBatch("login", message="請在瀏覽器完成登入／驗證並返回 Threads。")

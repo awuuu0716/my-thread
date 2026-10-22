@@ -25,7 +25,7 @@
 
 ## 登入與生命週期
 
-Playwright async API 與 UI 使用同一事件迴圈。首頁 lock／UI busy 控制讀取；只在首頁可切換可見／背景模式。切換必須先關閉原 context，再以相同 profile 啟動新 context；不匯出 Cookie 或同時開兩個 context。
+Playwright async API 與 UI 使用同一事件迴圈。首頁 lock／UI busy 控制讀取；只在首頁可開啟登入視窗。從背景切至可見模式時先關閉原 context，再以相同 profile 啟動新 context；「完成登入」保留已驗證的 context 與頁面，僅重試 DOM 讀取，避免重啟造成驗證狀態失效。不匯出 Cookie 或同時開兩個 context。
 
 留言使用獨立分頁以保留首頁。返回標記停止並關閉分頁；逾時關閉自有分頁，避免直接取消執行中的 protocol 呼叫。延遲 task 不可更新已卸載畫面，舊操作不可誤關新分頁。
 

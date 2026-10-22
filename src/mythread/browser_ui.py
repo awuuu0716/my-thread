@@ -288,8 +288,10 @@ class BrowserApp(App):
             yield Button("完成登入", id="background", disabled=self.source.headless is True)
             yield Button("重新整理", id="read")
             yield Button("下一批", id="next")
+            yield Button("恢復讀取", id="recover")
+            yield Button("重新登入", id="relogin", variant='warning')
             yield Button('關閉 APP', id='quit-app', variant='error')
-        yield Static("首次使用請點「登入視窗」，完成後點「完成登入」回到背景閱讀。", id="status", markup=False)
+        yield Static("首次使用請點「登入視窗」，完成後點「完成登入」開始閱讀；請保留瀏覽器開啟，可自行最小化。", id="status", markup=False)
         yield BridgeList()
         yield Footer()
 
@@ -323,26 +325,38 @@ class BrowserApp(App):
         status = self.query_one("#status", Static)
         status.update("載入中……")
         try:
-            if action in {'open', 'background'}:
+            if action in {'open', 'relogin'}:
                 self.posts_data = []
                 await self.query_one(ListView).clear()
                 status.update('正在切換專用瀏覽器……')
-                await self.source.switch_mode(action == 'background')
+                if action == 'relogin':
+                    status.update('正在清除專用瀏覽器登入資料並開啟登入視窗……')
+                    await self.source.relogin()
+                else:
+                    await self.source.switch_mode(False)
                 self.query_one('#background', Button).disabled = self.source.headless is True
-                if action == 'open':
-                    status.update('請在專用瀏覽器手動登入／完成驗證，然後點「完成登入」回到背景閱讀。')
-                    return
+                status.update('請在專用瀏覽器手動登入／完成驗證並返回 Threads，然後點「完成登入」。請保留瀏覽器開啟，可自行最小化。')
+                return
+            elif action == 'recover':
+                status.update('正在恢復瀏覽器與文章讀取……')
+                await self.source.recover()
+                self.query_one('#background', Button).disabled = self.source.headless is True
             elif action == 'startup':
                 status.update('正在開啟專用瀏覽器……')
                 await self.source.open()
                 status.update('瀏覽器已開啟，正在讀取文章……')
             batch = (await self.source.read(refresh=True) if action == 'read'
                      else await self.source.read(action == "next"))
-            if action in {'startup', 'background'}:
+            if action in {'startup', 'background', 'recover'}:
                 # DOMContentLoaded may precede the rendered feed. Bounded retry,
                 # with no scrolling or automatic login/verification interaction.
+                # Completing login keeps the verified context/page alive; a
+                # headed-to-headless restart can invalidate manual verification.
+                retry_states = {'loading', 'error'}
+                if action == 'background':
+                    retry_states.add('login')
                 for _ in range(10):
-                    if batch.state not in {'loading', 'error'}:
+                    if batch.state not in retry_states:
                         break
                     await asyncio.sleep(.5)
                     batch = await self.source.read(False)

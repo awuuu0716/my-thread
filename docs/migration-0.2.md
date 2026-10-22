@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 背景啟動 | `mythread browser` | `mythread` |
 | 可見啟動 | `mythread browser --headed` | `mythread --headed` 或「登入視窗」按鈕 |
-| 完成登入回背景 | 關閉再重啟 | 「完成登入」按鈕 |
+| 完成登入後閱讀 | 關閉再重啟 | 「完成登入」沿用已驗證的視窗 |
 | 原始碼依賴 | `.[browser]` | `.`（Playwright 為必要依賴） |
 | 開發依賴 | `.[dev,browser]` | `.[dev]` |
 | API、Token、OAuth、發文、demo | 另有指令 | 已移除，不提供相容別名 |

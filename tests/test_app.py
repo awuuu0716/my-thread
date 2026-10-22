@@ -46,7 +46,7 @@ async def test_switch_closes_old_context_before_reopening_same_profile():
     assert events[-2:] == ['close', ('open', True, profile)]
 
 
-async def test_click_login_then_return_to_background():
+async def test_click_login_then_read_without_restarting_browser():
     source = AsyncMock()
     source.headless = True
     source.read.return_value = BrowserBatch('ready', [])
@@ -62,8 +62,123 @@ async def test_click_login_then_return_to_background():
         source.switch_mode.assert_awaited_with(False)
         await pilot.click('#background')
         await app.workers.wait_for_complete()
-        source.switch_mode.assert_awaited_with(True)
+        source.switch_mode.assert_awaited_once_with(False)
+        assert source.headless is False
         source.read.assert_awaited_once_with(False)
+
+
+@pytest.mark.parametrize('final_state', ['ready', 'login'])
+async def test_complete_login_preserves_verified_page(monkeypatch, final_state):
+    from unittest.mock import Mock
+    from textual.widgets import Static
+
+    monkeypatch.setattr('mythread.browser_ui.asyncio.sleep', AsyncMock())
+    source = BrowserSource(headless=False)
+    source.context = AsyncMock()
+    source.page = AsyncMock()
+    source.page.is_closed = Mock(return_value=False)
+    source.page.url = 'https://www.threads.com/'
+    post = {'permalink': 'https://www.threads.com/@alice/post/VERIFIED',
+            'text': 'verified session'}
+    final = {'rows': [post]} if final_state == 'ready' else {'login': True}
+    source.page.evaluate.side_effect = [{'login': True}] + [final] * 10
+    page, context = source.page, source.context
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(110, 35)) as pilot:
+        await pilot.click('#background')
+        await app.workers.wait_for_complete()
+        assert source.page is page and source.context is context
+        context.close.assert_not_awaited()
+        page.goto.assert_not_awaited()
+        page.reload.assert_not_awaited()
+        assert source.headless is False
+        assert f'[{final_state}]' in str(app.query_one('#status', Static).render())
+        assert len(app.posts_data) == (1 if final_state == 'ready' else 0)
+
+
+@pytest.mark.parametrize('logged_in', [True, False])
+async def test_recover_closed_browser_keeps_profile_and_reads(tmp_path, logged_in):
+    from unittest.mock import Mock
+    from textual.widgets import Button, Static
+
+    source = BrowserSource(headless=False)
+    source.profile = tmp_path / 'profile'
+    source.profile.mkdir()
+    marker = source.profile / 'session-marker'
+    marker.write_text('preserve')
+    source.page = Mock()
+    source.page.is_closed.return_value = True
+    source.posts['stale'] = {}
+    page = AsyncMock()
+    page.is_closed = Mock(return_value=False)
+    page.url = 'https://www.threads.com/'
+    page.evaluate.return_value = {'rows': [
+        {'permalink': 'https://www.threads.com/@alice/post/RECOVERED', 'text': 'new feed'}]}
+    if not logged_in:
+        page.evaluate.return_value = {'login': True}
+
+    async def reopen():
+        assert marker.read_text() == 'preserve'
+        assert source.headless is True
+        source.page = page
+
+    source.open = AsyncMock(side_effect=reopen)
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(110, 35)) as pilot:
+        await pilot.click('#recover')
+        await app.workers.wait_for_complete()
+        source.open.assert_awaited_once()
+        assert [p['id'] for p in app.posts_data] == (['RECOVERED'] if logged_in else [])
+        assert app.query_one('#background', Button).disabled
+        if not logged_in:
+            status = str(app.query_one('#status', Static).render())
+            assert '[login]' in status and '登入視窗' in status
+        assert 'stale' not in source.posts
+        assert marker.exists()
+
+
+async def test_relogin_removes_only_owned_profile_after_close(tmp_path):
+    source = BrowserSource()
+    source.profile = tmp_path / 'profile'
+    source.profile.mkdir()
+    (source.profile / 'Cookies').write_text('synthetic session')
+    sibling = tmp_path / 'unrelated'
+    sibling.write_text('keep')
+    source.posts['old'] = {}
+    events = []
+
+    async def close():
+        assert (source.profile / 'Cookies').exists()
+        events.append('close')
+
+    async def reopen():
+        assert not source.profile.exists()
+        assert source.headless is False
+        events.append('open')
+
+    source.close = AsyncMock(side_effect=close)
+    source.open = AsyncMock(side_effect=reopen)
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(110, 35)) as pilot:
+        await pilot.click('#relogin')
+        await app.workers.wait_for_complete()
+        assert events == ['close', 'open']
+        assert not source.posts and not app.posts_data
+        assert sibling.read_text() == 'keep'
+
+
+async def test_relogin_does_not_delete_profile_if_close_fails(tmp_path):
+    source = BrowserSource()
+    source.profile = tmp_path / 'profile'
+    source.profile.mkdir()
+    marker = source.profile / 'Cookies'
+    marker.write_text('synthetic session')
+    source.close = AsyncMock(side_effect=RuntimeError('still running'))
+    source.open = AsyncMock()
+    with pytest.raises(RuntimeError, match='still running'):
+        await source.relogin()
+    assert marker.exists()
+    source.open.assert_not_awaited()
 
 
 def test_portable_browser_path_is_relative_to_exe(monkeypatch, tmp_path):
