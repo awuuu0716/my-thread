@@ -122,7 +122,8 @@ def classify(snapshot):
 
 
 class BrowserSource:
-    def __init__(self):
+    def __init__(self, *, headless=True):
+        self.headless = headless
         self.profile = Path(user_data_dir("mythread-browser", appauthor=False)) / "profile"
         self.runtime = self.context = self.page = None
         self.posts = {}
@@ -161,14 +162,16 @@ class BrowserSource:
 
     async def open(self):
         if self.page and not self.page.is_closed():
-            await self.page.bring_to_front()
+            if not self.headless:
+                await self.page.bring_to_front()
             return
         await self.close()
         from playwright.async_api import async_playwright
         self.profile.mkdir(parents=True, exist_ok=True)
         self.runtime = await async_playwright().start()
         self.context = await self.runtime.chromium.launch_persistent_context(
-            self.profile, headless=False, accept_downloads=False)
+            self.profile, headless=self.headless, channel='chromium',
+            viewport={'width': 1280, 'height': 900}, accept_downloads=False)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         await self.page.goto("https://www.threads.com/", wait_until="domcontentloaded", timeout=30000)
 

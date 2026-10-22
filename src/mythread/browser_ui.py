@@ -11,6 +11,13 @@ from textual.widgets import Button, Footer, Label, ListItem, ListView, Static
 from .tui import Article, article_text
 
 
+def browser_status(source, batch):
+    message = f'[{batch.state}] {batch.message}'
+    if getattr(source, 'headless', False) and batch.state in {'login', 'error', 'unconfirmed'}:
+        message += ' · 背景模式：需手動登入／驗證或檢查頁面時，先關閉 APP，再執行 mythread browser --headed。'
+    return message
+
+
 class BrowserTitle(Static):
     """Single-node title: no delayed HeaderTitle queries during screen teardown."""
     DEFAULT_CSS = '''
@@ -189,7 +196,7 @@ class CommentsScreen(Screen):
                 return
             if self.leaving:
                 return
-            status.update(f'[{batch.state}] {batch.message}')
+            status.update(browser_status(source, batch))
             if batch.state in {'ready', 'empty', 'login'}:
                 view = self.query_one(BridgeList)
                 old_ids = [p['id'] for p in self.posts_data]
@@ -311,7 +318,9 @@ class BrowserApp(App):
                 status.update('正在開啟專用瀏覽器……')
                 await self.source.open()
                 if action == 'open':
-                    status.update("瀏覽器已開啟：請手動登入／完成驗證，再按重新整理。")
+                    status.update('瀏覽器正在背景執行；需要顯示視窗時，先關閉 APP，再執行 mythread browser --headed。'
+                                  if getattr(self.source, 'headless', False) else
+                                  '瀏覽器已開啟：請手動登入／完成驗證，再按重新整理。')
                     return
                 status.update('瀏覽器已開啟，正在讀取文章……')
             batch = (await self.source.read(refresh=True) if action == 'read'
@@ -324,7 +333,7 @@ class BrowserApp(App):
                         break
                     await asyncio.sleep(.5)
                     batch = await self.source.read(False)
-            status.update(f"[{batch.state}] {batch.message}")
+            status.update(browser_status(self.source, batch))
             if batch.state in {"ready", "empty", "login"}:
                 view = self.query_one(ListView)
                 old_index = view.index
