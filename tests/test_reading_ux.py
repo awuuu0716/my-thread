@@ -143,7 +143,7 @@ def test_preview_is_bounded_safe_and_full_article_remains_available():
     post = posts()[0]
     post['text'] += '\x1b\x00'
     preview = post_preview(post, width=24)
-    body = preview.splitlines()[1:-1]
+    body = preview.splitlines()[1:]
     assert len(body) == 3
     assert all(cell_len(line) <= 24 for line in body)
     assert body[-1].endswith('…')

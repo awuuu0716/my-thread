@@ -25,8 +25,7 @@ def text_excerpt(value: str, *, width=72, lines=3) -> str:
 
 def post_preview(post: dict, *, width=72, lines=3) -> str:
     return plain(f"@{post.get('username', '')}\n"
-                 f"{text_excerpt(post.get('text', ''), width=width, lines=lines)}\n"
-                 'Enter 閱讀全文')
+                 f"{text_excerpt(post.get('text', ''), width=width, lines=lines)}")
 
 
 def article_text(post: dict) -> str:
