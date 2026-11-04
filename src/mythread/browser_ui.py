@@ -133,7 +133,8 @@ class BridgeList(ListView):
         self.preview_width = width
         anchor = self.pending_anchor or self.capture_anchor(posts)
         for child, post in zip(self.children, posts):
-            child.query_one(Label).update(Text(post_preview(post, width=width)))
+            child.query_one(Label).update(Text(post_preview(
+                post, width=width, lines=3 if isinstance(self.screen, CommentsScreen) else None)))
         self.restore_anchor(anchor, posts)
 
     def queue_more(self):
@@ -185,6 +186,7 @@ class BrowserReader(Screen):
     DEFAULT_CSS = '''
     BrowserReader #reader-actions { height: 3; }
     BrowserReader #reader-actions Button { min-width: 8; margin-right: 0; }
+    BrowserReader #reader-actions #quit-app { dock: right; }
     '''
 
     def __init__(self, post):
@@ -251,6 +253,7 @@ class CommentsScreen(Screen):
     CommentsScreen #comments-caveat { height: auto; color: $text-muted; }
     CommentsScreen #comments-actions { height: 3; }
     CommentsScreen #comments-actions Button { min-width: 8; margin-right: 0; }
+    CommentsScreen #comments-actions #quit-app { dock: right; }
     '''
 
     def __init__(self, post):
@@ -642,7 +645,7 @@ class BrowserApp(App):
                             view.scroll_home(animate=False)
                     self.posts_data = batch.posts
                     for index, post in enumerate(batch.posts):
-                        label = Text(post_preview(post, width=max(12, view.size.width - 6)))
+                        label = Text(post_preview(post, width=max(12, view.size.width - 6), lines=None))
                         if append_only and index < len(previous_ids):
                             view.children[index].query_one(Label).update(label)
                         else:

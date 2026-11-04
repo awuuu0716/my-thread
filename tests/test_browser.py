@@ -19,6 +19,46 @@ def test_normalize_and_dedupe():
                       "permalink": "https://www.threads.com/@alice/post/ABC"}]
 
 
+@pytest.mark.parametrize('count', [0, 12, '1,234', '1.2K', '2.5萬'])
+def test_extract_preserves_visible_reply_count(count):
+    assert extract_posts([dict(row(), reply_count=count)])[0]['reply_count'] == str(count)
+
+
+@pytest.mark.parametrize('count', [None, True, -1, 'unknown', '[red]12', '12\nsecret'])
+def test_extract_rejects_unknown_or_invalid_reply_count(count):
+    assert 'reply_count' not in extract_posts([dict(row(), reply_count=count)])[0]
+
+
+def test_real_chromium_reply_counts_come_only_from_visible_reply_controls():
+    from playwright.sync_api import sync_playwright
+
+    cases = [
+        ('<button aria-label="12 replies">12</button>', '12'),
+        ('<button aria-label="留言 0">0</button>', '0'),
+        ('<div role="button"><svg aria-label="回覆"></svg><span dir="auto">1,234</span></div>', '1,234'),
+        ('<button><svg><title>Reply</title></svg><span>1.2K</span></button>', '1.2K'),
+        ('<button aria-label="回覆 2.5萬">2.5萬</button>', '2.5萬'),
+        ('<svg role="button" aria-label="3 replies"></svg>', '3'),
+        ('<button aria-label="Like">100</button><button aria-label="Reply"></button>', None),
+        ('<button aria-label="Share">12</button><button style="display:none" aria-label="12 replies">12</button>', None),
+        ('<div dir="auto">12 replies</div><button aria-label="Reply"></button>', None),
+    ]
+    with sync_playwright() as runtime:
+        browser = runtime.chromium.launch()
+        try:
+            page = browser.new_page()
+            for controls, count in cases:
+                page.set_content(f'''<article>
+                    <a href="https://www.threads.com/@alice/post/COUNT">post</a>
+                    <div dir="auto">正文</div>{controls}</article>''')
+                batch = classify(page.evaluate(SNAPSHOT))
+                assert batch.state == 'ready'
+                assert batch.posts[0].get('reply_count') == count, controls
+                assert '1,234' not in batch.posts[0]['text']
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize("snapshot,state", [({}, "error"), ({"login": True}, "login"),
     ({"loading": True}, "loading"), ({"empty": True}, "empty"),
     ({"empty": True, "candidates": 1}, "error"), ({"rows": [row()]}, "ready")])

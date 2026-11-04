@@ -57,6 +57,25 @@ SNAPSHOT = r"""(options = {}) => {
  // visible permalink still establishes ordering without inventing its text.
  const anchor = options.parent_id ? links.find(e => postId(e) === options.parent_id) : null;
  const rows = [];
+ const replyCount = root => {
+   const number = '(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*[KMB萬万億亿]?';
+   const name = '(?:replies|reply|comments?|回覆|回复|留言|則留言|条回复)';
+   const numeric = new RegExp('^' + number + '$', 'i');
+   const labelled = new RegExp('^(?:' + name + '\\s*[:：]?\\s*(' + number + ')|(' + number + ')\\s*' + name + ')$', 'i');
+   for (const control of root.querySelectorAll('button, [role="button"], a[role="link"]')) {
+     // Never read a whole clickable card or a toolbar containing several counts.
+     if (!visible(control) || control.querySelector('button, [role="button"]')) continue;
+     const labels = [control.getAttribute('aria-label') || '',
+       ...[...control.querySelectorAll('[aria-label], title')].map(e => e.getAttribute('aria-label') || e.textContent || '')];
+     const text = (control.innerText || '').trim();
+     for (const value of [...labels, text]) {
+       const match = value.trim().match(labelled);
+       if (match) return (match[1] || match[2]).trim();
+     }
+     if (labels.some(label => new RegExp('^' + name + '$', 'i').test(label.trim())) && numeric.test(text)) return text;
+   }
+   return null;
+ };
  const metadata = text => /^(?:\d+\s*(?:秒|分鐘|分鐘前|分|小時|天|週|周|個月|年|seconds?|minutes?|hours?|days?|weeks?|months?|years?|[smhdwy])(?:前| ago)?|剛剛|just now)$/i.test(text);
  const blocksIn = root => [...root.querySelectorAll('[dir="auto"]')].filter(e => {
    const text = e.innerText.trim();
@@ -86,7 +105,7 @@ SNAPSHOT = r"""(options = {}) => {
    const blocks = blocksIn(root);
    const text = blocks.map(e => e.innerText.trim()).filter(Boolean).join('\n');
    // Avatars in a header are not evidence of a media-only post.
-   if (text || root.querySelector('video, img[alt]:not([alt=""]):not([alt*="profile"]):not([alt*="大頭"])')) rows.push({permalink: link.href, text});
+   if (text || root.querySelector('video, img[alt]:not([alt=""]):not([alt*="profile"]):not([alt*="大頭"])')) rows.push({permalink: link.href, text, reply_count: replyCount(root)});
  }
  const signals = [...document.querySelectorAll('[role="status"], main h1, main h2')].filter(visible).map(e => e.innerText.trim());
  return {rows, candidates: links.length, anchor_found: !!anchor,
@@ -119,6 +138,11 @@ def extract_posts(rows):
         result[post_id] = {"id": post_id, "username": author,
                            "text": plain(row.get("text", "")),
                            "permalink": f"https://www.threads.com/@{author}/post/{post_id}"}
+        count = row.get('reply_count')
+        if isinstance(count, (str, int)) and not isinstance(count, bool):
+            count = str(count).strip()
+            if re.fullmatch(r'(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*[KMB萬万億亿]?', count, re.I):
+                result[post_id]['reply_count'] = count
     return list(result.values())
 
 

@@ -153,6 +153,41 @@ def test_preview_is_bounded_safe_and_full_article_remains_available():
     assert text_excerpt('') == EMPTY_TEXT
 
 
+async def test_home_displays_complete_text_and_rewraps_without_truncation():
+    source = AsyncMock()
+    source.headless = True
+    feed = posts(10)
+    body = '完整內文[red]literal[/red]' * 30 + '\n文章尾端確認'
+    feed[0]['text'] = body + '\x1b\x00'
+    feed[0]['reply_count'] = '12'
+    source.read.return_value = BrowserBatch('ready', feed)
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(110, 35)) as pilot:
+        app.action_read()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        view = app.query_one(BridgeList)
+        for width in (110, 60):
+            if width == 60:
+                await pilot.resize_terminal(width, 20)
+                await pilot.pause()
+            rendered = str(view.children[0].query_one(Label).render())
+            assert '留言 12' in rendered.splitlines()[0]
+            assert ''.join(rendered.splitlines()[1:]) == body.replace('\n', '')
+            assert all(cell_len(line) <= width - 6 for line in rendered.splitlines())
+            assert view.children[0].region.height > 7
+            assert view.index == 0
+        source.read.assert_awaited_once_with(refresh=True)
+
+
+@pytest.mark.parametrize('count, expected', [(None, '-'), ('0', '0'), ('2.5萬', '2.5萬')])
+def test_home_list_reply_count_distinguishes_unknown_from_zero(count, expected):
+    post = posts()[0]
+    if count is not None:
+        post['reply_count'] = count
+    assert f'留言 {expected}' in post_preview(post, lines=None).splitlines()[0]
+
+
 @pytest.mark.parametrize('reader_type', [BrowserReader, BrowserArticle])
 async def test_original_button_and_shortcut_are_explicit_and_preserve_screen(reader_type):
     source = AsyncMock()
@@ -269,6 +304,8 @@ async def test_resize_rewraps_previews_without_requesting_more():
 
 
 async def test_cancelled_anchor_completion_does_not_break_ui_callbacks():
+    import asyncio
+
     source = AsyncMock()
     source.headless = True
     source.open_replies.return_value = BrowserBatch('ready', posts(8))
@@ -281,6 +318,8 @@ async def test_cancelled_anchor_completion_does_not_break_ui_callbacks():
         view = screen.query_one(BridgeList)
         settled = view.restore_anchor(view.capture_anchor(screen.posts_data), screen.posts_data)
         settled.cancel()
-        await pilot.pause()
+        refreshed = asyncio.Event()
+        app.call_after_refresh(refreshed.set)
+        await asyncio.wait_for(refreshed.wait(), timeout=5)
         assert settled.cancelled()
         assert not view.restoring_anchor
