@@ -7,7 +7,7 @@ from textual.widgets import Button, Label, ListItem
 
 from mythread.browser import BrowserBatch, extract_posts
 from mythread.browser_ui import BrowserApp, BrowserArticle, BrowserReader, BridgeList, CommentsScreen
-from mythread.text import EMPTY_TEXT, article_text, post_preview, text_excerpt
+from mythread.text import EMPTY_TEXT, article_text, post_preview, split_part_marker, text_excerpt
 
 
 def posts(count=1):
@@ -151,6 +151,26 @@ def test_preview_is_bounded_safe_and_full_article_remains_available():
     assert len(article_text(post)) > len(preview)
     assert '[red]literal[/red]' in article_text(post)
     assert text_excerpt('') == EMPTY_TEXT
+
+
+@pytest.mark.parametrize('marker', ['1/2', '1\n/\n2', ' 1 \n / \n 2 \n', '1／2'])
+def test_trailing_part_number_moves_to_author_without_changing_source(marker):
+    post = {'username': 'alice', 'text': f'完整正文\n第二段\n{marker}',
+            'reply_count': '74', 'permalink': 'https://www.threads.com/@alice/post/PART'}
+    original = post['text']
+    preview = post_preview(post, lines=None)
+    assert preview == '@alice · 留言 74 · 分篇 1/2\n完整正文\n第二段'
+    assert article_text(post) == f"@alice · 分篇 1/2\n\n完整正文\n第二段\n\n{post['permalink']}"
+    assert post['text'] == original
+
+
+@pytest.mark.parametrize('body', [
+    '使用 1/2 杯水', '正文\n未完待續 1/2', '正文\n1/2\n後續正文',
+    '正文 1/2', '1/2', '正文\n0/2', '正文\n3/2', '正文\n1/1',
+    '正文\n2026/11/4',
+])
+def test_fraction_in_body_or_invalid_part_number_is_preserved(body):
+    assert split_part_marker(body) == (body, '')
 
 
 async def test_home_displays_complete_text_and_rewraps_without_truncation():
