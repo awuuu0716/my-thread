@@ -349,6 +349,7 @@ class CommentsScreen(Screen):
 
 class BrowserApp(App):
     OPERATION_TIMEOUT = 40
+    CLEANUP_TIMEOUT = 5
     TITLE = "myThread · 唯讀瀏覽器版"
     BINDINGS = [("ctrl+q", "safe_quit", "離開"), ("ctrl+r", "read", "重新整理"),
                 ("ctrl+n", "next", "載入更多"), ("ctrl+b", "open", "登入視窗")]
@@ -502,9 +503,15 @@ class BrowserApp(App):
             return await asyncio.wait_for(asyncio.shield(task), self.OPERATION_TIMEOUT)
         except TimeoutError:
             # Release the owned browser before cancelling an outstanding protocol call.
-            await asyncio.wait_for(self.source.close(), 5)
-            if not task.done():
-                task.cancel()
+            try:
+                await asyncio.wait_for(self.source.close(), self.CLEANUP_TIMEOUT)
+            except Exception:
+                # A failed shutdown must not leave the shielded operation running
+                # while the UI offers another read or recovery action.
+                pass
+            finally:
+                if not task.done():
+                    task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             raise
 

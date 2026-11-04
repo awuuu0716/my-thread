@@ -108,6 +108,36 @@ async def test_article_hides_inactive_global_shortcuts():
         backend.switch_mode.assert_not_awaited()
 
 
+@pytest.mark.parametrize('close_failure', ['exception', 'timeout'])
+async def test_read_timeout_releases_operation_even_when_browser_cleanup_fails(close_failure):
+    backend = source()
+    cancelled = asyncio.Event()
+
+    async def pending_read(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def failed_close():
+        if close_failure == 'exception':
+            raise RuntimeError('synthetic shutdown failure')
+        await asyncio.Event().wait()
+
+    backend.read.side_effect = pending_read
+    backend.close.side_effect = failed_close
+    app = BrowserApp(backend, auto_start=False)
+    app.OPERATION_TIMEOUT = .02
+    app.CLEANUP_TIMEOUT = .02
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.action_read()
+        await app.workers.wait_for_complete()
+        assert cancelled.is_set()
+        assert not app.busy
+        assert app.state == 'closed'
+        assert '逾時' in str(app.query_one('#status', Static).render())
+
+
 def test_chinese_status_uses_consistent_login_action_and_hides_diagnostics():
     backend = source()
     login = browser_status(backend, BrowserBatch('login', message='請按重新整理'))

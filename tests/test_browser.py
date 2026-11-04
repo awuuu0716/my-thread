@@ -46,7 +46,9 @@ async def test_startup_opens_browser_then_reads_automatically(state):
         await pilot.pause()
         assert calls == ['open', ('read', False)]
         assert len(app.posts_data) == (1 if state == 'ready' else 0)
-        assert state in str(app.query_one('#status', Static).render())
+        assert app.state == state
+        expected_status = '已載入' if state == 'ready' else '需要登入'
+        assert expected_status in str(app.query_one('#status', Static).render())
 
 
 async def test_startup_waits_for_rendered_feed():
