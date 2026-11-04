@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 from rich.cells import cell_len
+from textual import events
 from textual.widgets import Button, Label, ListItem
 
 from mythread.browser import BrowserBatch, extract_posts
@@ -12,6 +13,73 @@ from mythread.text import EMPTY_TEXT, article_text, post_preview, text_excerpt
 def posts(count=1):
     return extract_posts([{'permalink': f'https://www.threads.com/@alice/post/P{i}',
                            'text': '測試內容 [red]literal[/red] ' * 100} for i in range(count)])
+
+
+async def right_click(app, pilot, widget):
+    # Pilot.click bypasses App.on_event; send raw terminal events to exercise
+    # interception before Textual dispatches clicks to buttons / list items.
+    x, y = widget.region.x + 1, widget.region.y
+    for event_type in (events.MouseDown, events.MouseUp):
+        app.post_message(event_type(widget, x, y, 0, 0, 3, False, False, False))
+        await pilot.pause()
+
+
+@pytest.mark.parametrize('target', ['#article', '#original', '#quit-app'])
+async def test_right_click_article_returns_once_and_preserves_home_position(target):
+    source = AsyncMock()
+    source.headless = True
+    source.read.return_value = BrowserBatch('ready', posts(12))
+    app = BrowserApp(source, auto_start=False)
+    app.open_url = Mock()
+    app.exit = Mock()
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.action_read()
+        await app.workers.wait_for_complete()
+        view = app.query_one(BridgeList)
+        view.index = 4
+        await pilot.pause()
+        anchor = view.capture_anchor(app.posts_data)
+        await pilot.press('enter')
+        assert isinstance(app.screen, BrowserArticle)
+        await right_click(app, pilot, app.screen.query_one(target))
+        assert len(app.screen_stack) == 1
+        assert view.capture_anchor(app.posts_data) == anchor
+        app.open_url.assert_not_called()
+        app.exit.assert_not_called()
+        source.read.assert_awaited_once()
+
+
+async def test_right_click_returns_from_reply_then_closes_comments_tab():
+    source = AsyncMock()
+    source.headless = True
+    source.open_replies.return_value = BrowserBatch('ready', posts(12))
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test() as pilot:
+        article = BrowserArticle(posts()[0])
+        await app.push_screen(article)
+        article.action_comments()
+        await app.workers.wait_for_complete()
+        comments = app.screen
+        await app.push_screen(BrowserReader(posts()[0]))
+        await right_click(app, pilot, app.screen.query_one('#article'))
+        assert app.screen is comments
+        source.close_replies.assert_not_awaited()
+        await right_click(app, pilot, comments.query_one(BridgeList).children[0])
+        await app.workers.wait_for_complete()
+        assert app.screen is article
+        source.close_replies.assert_awaited_once()
+
+
+async def test_right_click_home_does_not_open_article():
+    source = AsyncMock()
+    source.headless = True
+    source.read.return_value = BrowserBatch('ready', posts(12))
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test() as pilot:
+        app.action_read()
+        await app.workers.wait_for_complete()
+        await right_click(app, pilot, app.query_one(BridgeList).children[0])
+        assert len(app.screen_stack) == 1
 
 
 @pytest.mark.parametrize('action', ['startup', 'background', 'recover', 'read', 'next'])
@@ -145,7 +213,8 @@ async def test_comments_preview_context_busy_controls_and_eviction_anchor():
         assert not screen.query_one('#comments-more', Button).disabled
 
 
-async def test_comments_buttons_disable_while_reading_but_back_remains_available():
+@pytest.mark.parametrize('back_method', ['escape', 'right_click'])
+async def test_comments_buttons_disable_while_reading_but_back_remains_available(back_method):
     import asyncio
 
     started, released = asyncio.Event(), asyncio.Event()
@@ -170,7 +239,10 @@ async def test_comments_buttons_disable_while_reading_but_back_remains_available
         assert screen.query_one('#comments-read', Button).disabled
         assert screen.query_one('#comments-more', Button).disabled
         assert not screen.query_one('#comments-back', Button).disabled
-        await pilot.press('escape')
+        if back_method == 'right_click':
+            await right_click(app, pilot, screen.query_one('#comments-context'))
+        else:
+            await pilot.press('escape')
         await app.workers.wait_for_complete()
         assert len(app.screen_stack) == 1
 

@@ -2,7 +2,7 @@
 import time
 import asyncio
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App
 from textual.screen import Screen
 from textual.containers import Horizontal, VerticalScroll
@@ -196,7 +196,7 @@ class BrowserReader(Screen):
         with VerticalScroll():
             yield Static(Text(article_text(self.post)), id='article')
         with Horizontal(id='reader-actions'):
-            yield Button('返回 [Esc]', id='back')
+            yield Button('返回 [Esc／右鍵]', id='back')
             if isinstance(self, BrowserArticle):
                 yield Button('讀取留言 [C]', id='comments')
             yield Button('原文 [O]', id='original')
@@ -269,7 +269,7 @@ class CommentsScreen(Screen):
         with Horizontal(id='comments-actions'):
             yield Button('重新整理', id='comments-read')
             yield Button('更多留言', id='comments-more', disabled=True)
-            yield Button('返回文章', id='comments-back')
+            yield Button('返回文章 [右鍵]', id='comments-back')
             yield Button('關閉 APP', id='quit-app', variant='error')
         yield Static('正在開啟留言頁……', id='comments-status', markup=False)
         yield BridgeList()
@@ -435,6 +435,21 @@ class BrowserApp(App):
         self.update_actions()
         if self.auto_start:
             self.perform('startup')
+
+    async def on_event(self, event):
+        # Intercept before dispatch to widgets: a right-click on a button or
+        # list item must return rather than activate that widget.
+        if (isinstance(event, (events.MouseDown, events.MouseUp, events.Click))
+                and not event.is_forwarded and event.button == 3):
+            event.prevent_default()
+            event.stop()
+            if isinstance(event, events.MouseDown):
+                if isinstance(self.screen, CommentsScreen):
+                    self.screen.action_back()
+                elif isinstance(self.screen, BrowserReader):
+                    self.pop_screen()
+            return
+        await super().on_event(event)
 
     def request_more(self):
         if isinstance(self.screen, CommentsScreen):
