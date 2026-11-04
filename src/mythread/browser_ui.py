@@ -397,6 +397,8 @@ class CommentsScreen(Screen):
 
 
 class BrowserApp(App):
+    HOME_MIN_POSTS = 10
+    HOME_FILL_LIMIT = 10
     OPERATION_TIMEOUT = 40
     CLEANUP_TIMEOUT = 5
     TITLE = "myThread · 唯讀瀏覽器版"
@@ -607,32 +609,45 @@ class BrowserApp(App):
                         break
                     await asyncio.sleep(.5)
                     batch = await self.browser_call(self.source.read(False))
-            self.state = batch.state
-            self.record_batch(batch)
-            status.update(browser_status(self.source, batch))
-            if batch.state in {"ready", "empty", "login"}:
-                view = self.query_one(BridgeList)
-                anchor = view.capture_anchor(self.posts_data)
-                previous_ids = [post['id'] for post in self.posts_data]
-                new_ids = [post['id'] for post in batch.posts]
-                append_only = action != 'read' and bool(previous_ids) and new_ids[:len(previous_ids)] == previous_ids
-                if not append_only:
-                    await view.clear()
-                    if action == 'read' or not previous_ids:
-                        view.scroll_home(animate=False)
-                self.posts_data = batch.posts
-                for index, post in enumerate(batch.posts):
-                    label = Text(post_preview(post, width=max(12, view.size.width - 6)))
-                    if append_only and index < len(previous_ids):
-                        view.children[index].query_one(Label).update(label)
-                    else:
-                        await view.append(ListItem(Label(label)))
-                if batch.posts:
-                    if action != 'read' and previous_ids:
-                        await view.restore_anchor(anchor, batch.posts)
-                    elif not append_only:
-                        view.index = 0
-                        view.focus()
+            fill_ids = set()
+            for attempt in range(self.HOME_FILL_LIMIT + 1):
+                reset_feed = action == 'read' and attempt == 0
+                self.state = batch.state
+                self.record_batch(batch)
+                status.update(browser_status(self.source, batch))
+                if batch.state in {"ready", "empty", "login"}:
+                    view = self.query_one(BridgeList)
+                    anchor = view.capture_anchor(self.posts_data)
+                    previous_ids = [post['id'] for post in self.posts_data]
+                    new_ids = [post['id'] for post in batch.posts]
+                    append_only = not reset_feed and bool(previous_ids) and new_ids[:len(previous_ids)] == previous_ids
+                    if not append_only:
+                        await view.clear()
+                        if reset_feed or not previous_ids:
+                            view.scroll_home(animate=False)
+                    self.posts_data = batch.posts
+                    for index, post in enumerate(batch.posts):
+                        label = Text(post_preview(post, width=max(12, view.size.width - 6)))
+                        if append_only and index < len(previous_ids):
+                            view.children[index].query_one(Label).update(label)
+                        else:
+                            await view.append(ListItem(Label(label)))
+                    if batch.posts:
+                        if not reset_feed and previous_ids:
+                            await view.restore_anchor(anchor, batch.posts)
+                        elif not append_only:
+                            view.index = 0
+                            view.focus()
+                # Render each batch before fetching more, keeping the UI responsive
+                # and preserving already loaded articles if a later read fails.
+                ids = {post['id'] for post in batch.posts}
+                if (batch.state != 'ready' or not ids or len(ids) >= self.HOME_MIN_POSTS
+                        or (attempt and not ids - fill_ids)
+                        or attempt == self.HOME_FILL_LIMIT or self.quit_pending):
+                    break
+                fill_ids = ids
+                status.update(f'已載入 {len(ids)} 篇，正在自動補足 {self.HOME_MIN_POSTS} 篇……')
+                batch = await self.browser_call(self.source.read(True))
         except TimeoutError:
             self.state = "closed"
             status.update("讀取逾時，已停止本次操作。請點「恢復讀取」重新開啟瀏覽器。")

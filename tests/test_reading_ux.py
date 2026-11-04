@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 from rich.cells import cell_len
@@ -12,6 +12,63 @@ from mythread.text import EMPTY_TEXT, article_text, post_preview, text_excerpt
 def posts(count=1):
     return extract_posts([{'permalink': f'https://www.threads.com/@alice/post/P{i}',
                            'text': '測試內容 [red]literal[/red] ' * 100} for i in range(count)])
+
+
+@pytest.mark.parametrize('action', ['startup', 'background', 'recover', 'read', 'next'])
+async def test_home_fills_short_feed_without_scrolling(action):
+    source = AsyncMock()
+    source.headless = True
+    source.read.side_effect = [BrowserBatch('ready', posts(n)) for n in (3, 6, 10)]
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test() as pilot:
+        app.perform(action)
+        await app.workers.wait_for_complete()
+        assert len(app.posts_data) == 10
+        assert len(app.query_one(BridgeList).children) == 10
+        assert app.query_one(BridgeList).index == 0
+        assert source.read.await_args_list[1:] == [call(True), call(True)]
+        assert not app.busy
+
+
+@pytest.mark.parametrize('state', ['ready', 'empty', 'login', 'error', 'closed'])
+async def test_home_stops_filling_when_no_progress_or_read_unavailable(state):
+    source = AsyncMock()
+    source.headless = True
+    source.read.side_effect = [BrowserBatch('ready', posts(3)),
+                               BrowserBatch(state, posts(3) if state == 'ready' else [])]
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test():
+        app.action_read()
+        await app.workers.wait_for_complete()
+        assert source.read.await_count == 2
+        assert app.state == state
+        assert not app.busy
+        if state in {'error', 'closed', 'ready'}:
+            assert len(app.posts_data) == 3
+
+
+@pytest.mark.parametrize('count', [0, 10, 12])
+async def test_home_does_not_fill_empty_or_sufficient_feed(count):
+    source = AsyncMock()
+    source.headless = True
+    source.read.return_value = BrowserBatch('ready' if count else 'empty', posts(count))
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test():
+        app.action_read()
+        await app.workers.wait_for_complete()
+        source.read.assert_awaited_once_with(refresh=True)
+
+
+async def test_home_filling_has_attempt_limit_even_if_ids_keep_changing():
+    source = AsyncMock()
+    source.headless = True
+    source.read.side_effect = [BrowserBatch('ready', [post]) for post in posts(12)]
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test():
+        app.action_read()
+        await app.workers.wait_for_complete()
+        assert source.read.await_count == app.HOME_FILL_LIMIT + 1
+        assert not app.busy
 
 
 def test_preview_is_bounded_safe_and_full_article_remains_available():

@@ -44,7 +44,7 @@ async def test_startup_opens_browser_then_reads_automatically(state):
     async with app.run_test(size=(110, 35)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert calls == ['open', ('read', False)]
+        assert calls == ['open', ('read', False)] + ([('read', True)] if state == 'ready' else [])
         assert len(app.posts_data) == (1 if state == 'ready' else 0)
         assert app.state == state
         expected_status = '已載入' if state == 'ready' else '需要登入'
@@ -53,13 +53,14 @@ async def test_startup_opens_browser_then_reads_automatically(state):
 
 async def test_startup_waits_for_rendered_feed():
     source = AsyncMock()
-    source.read.side_effect = [BrowserBatch('loading'), BrowserBatch('ready', extract_posts([row()]))]
+    ready = BrowserBatch('ready', extract_posts([row()]))
+    source.read.side_effect = [BrowserBatch('loading'), ready, ready]
     app = BrowserApp(source)
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
         source.open.assert_awaited_once()
-        assert source.read.await_count == 2
+        assert source.read.await_count == 3
         assert len(app.posts_data) == 1
 
 
@@ -89,7 +90,7 @@ async def test_ui_read_next_and_readonly():
         source.switch_mode.assert_awaited_once_with(False)
         await pilot.press("ctrl+r")
         await app.workers.wait_for_complete()
-        source.read.assert_awaited_with(refresh=True)
+        source.read.assert_any_await(refresh=True)
         assert len(app.posts_data) == 1
         await pilot.press("enter")
         assert isinstance(app.screen, Article)
@@ -126,7 +127,7 @@ async def test_next_scrolls_again_and_stops_at_limit(monkeypatch):
 
 
 async def test_terminal_scroll_loads_more_without_rebuilding_or_looping():
-    first = extract_posts([row(str(i), '正文\n' * 8) for i in range(4)])
+    first = extract_posts([row(str(i), '正文\n' * 8) for i in range(10)])
     source = AsyncMock()
     source.read.side_effect = [BrowserBatch('ready', first),
                               BrowserBatch('ready', first + extract_posts([row('NEW')]))]
@@ -146,7 +147,7 @@ async def test_terminal_scroll_loads_more_without_rebuilding_or_looping():
         source.read.assert_awaited_with(True)
         assert view.children[0] is original_item
         assert view.scroll_y > 0
-        assert len(app.posts_data) == 5
+        assert len(app.posts_data) == 11
         # Upward scrolling and layout changes do not request another browser batch.
         view.scroll_home(animate=False)
         await pilot.pause()
@@ -156,7 +157,7 @@ async def test_terminal_scroll_loads_more_without_rebuilding_or_looping():
 @pytest.mark.parametrize('busy', [False, True])
 async def test_near_bottom_prefetch_survives_cooldown_without_another_scroll(busy):
     import time
-    posts = extract_posts([row(str(i), '正文\n' * 10) for i in range(5)])
+    posts = extract_posts([row(str(i), '正文\n' * 10) for i in range(10)])
     source = AsyncMock()
     source.read.return_value = BrowserBatch('ready', posts)
     app = BrowserApp(source, auto_start=False)

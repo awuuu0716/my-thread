@@ -82,7 +82,7 @@ async def test_complete_login_preserves_verified_page(monkeypatch, final_state):
     post = {'permalink': 'https://www.threads.com/@alice/post/VERIFIED',
             'text': 'verified session'}
     final = {'rows': [post]} if final_state == 'ready' else {'login': True}
-    source.page.evaluate.side_effect = [{'login': True}] + [final] * 10
+    source.page.evaluate.side_effect = [{'login': True}] + [final] * 100
     page, context = source.page, source.context
     app = BrowserApp(source, auto_start=False)
     async with app.run_test(size=(110, 35)) as pilot:
