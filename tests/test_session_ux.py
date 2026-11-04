@@ -43,6 +43,42 @@ async def test_home_actions_fit_and_clear_login_requires_confirmation(size):
         backend.relogin.assert_awaited_once()
 
 
+@pytest.mark.parametrize('size', [(60, 20), (80, 24), (110, 35)])
+async def test_load_more_is_in_right_aligned_menu_and_shortcut_still_works(size):
+    backend = source()
+    posts = extract_posts([{'permalink': f'https://www.threads.com/@alice/post/P{i}',
+                            'text': 'Article text'} for i in range(10)])
+    backend.read.return_value = BrowserBatch('ready', posts)
+    app = BrowserApp(backend, auto_start=False)
+    async with app.run_test(size=size) as pilot:
+        app.action_read()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.query_one('#more-actions', Button).region.right == size[0]
+        assert not app.query_one('#home-extra').display
+        assert app.query_one('#next', Button).parent.parent.id == 'home-extra'
+
+        await pilot.press('ctrl+n')
+        await app.workers.wait_for_complete()
+        backend.read.assert_awaited_with(True)
+        assert not app.query_one('#home-extra').display
+
+        await pilot.click('#more-actions')
+        await pilot.pause()
+        for button in app.query('#home-extra Button'):
+            assert button.region.width > 0
+            assert 0 <= button.region.x < button.region.right <= size[0]
+            assert button.region.bottom < size[1]
+        backend.read.reset_mock()
+        await pilot.click('#next')
+        await app.workers.wait_for_complete()
+        backend.read.assert_awaited_once_with(True)
+        await pilot.click('#more-actions')
+        await pilot.pause()
+        assert not app.query_one('#home-extra').display
+        assert app.query_one('#more-actions', Button).region.right == size[0]
+
+
 async def test_busy_feedback_disables_conflicting_actions_and_quit_is_queued():
     backend = source()
     started, release = asyncio.Event(), asyncio.Event()

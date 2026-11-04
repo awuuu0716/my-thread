@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- 首頁「載入更多」收進「更多」，「更多」固定於工具列右上角；展開操作分兩列靠右排列，保留 Ctrl+N 與自動預載。
+
 - Windows 新增 `.\start`／`start.cmd` 快捷啟動，在新 PowerShell 視窗執行專案虛擬環境中的 APP，支援轉傳 `--headed` 等參數。
 
 ### Terminal UX 改善

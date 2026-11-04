@@ -5,7 +5,7 @@ from rich.text import Text
 from textual import events, work
 from textual.app import App
 from textual.screen import Screen
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Footer, Label, ListItem, ListView, Static
 
 from .text import article_text, post_preview, text_excerpt
@@ -412,7 +412,10 @@ class BrowserApp(App):
     Button { min-width: 10; margin-right: 1; }
     #home-actions, #home-extra { height: auto; min-height: 3; }
     #home-actions Button { min-width: 8; padding: 0 1; }
-    #home-extra Button { min-width: 10; padding: 0 1; }
+    #home-spacer { width: 1fr; height: 1; }
+    #more-actions { margin-right: 0; }
+    #home-extra Horizontal { height: 3; align-horizontal: right; }
+    #home-extra Button { min-width: 10; padding: 0 1; margin: 0 0 0 1; }
     #home-hint { height: auto; color: $text-muted; }
     #status-details { height: auto; color: $text-muted; }
     #status { height: auto; min-height: 2; }
@@ -470,13 +473,16 @@ class BrowserApp(App):
             yield Button("登入視窗", id="open", variant='primary')
             yield Button("完成登入", id="background", disabled=self.source.headless is True)
             yield Button("重新整理", id="read")
-            yield Button("載入更多", id="next", disabled=True)
+            yield Static('', id='home-spacer')
             yield Button("更多", id="more-actions")
-        with Horizontal(id='home-extra'):
-            yield Button("恢復讀取", id="recover")
-            yield Button("清除登入資料", id="relogin", variant='warning')
-            yield Button('關閉 APP', id='quit-app')
-            yield Button('診斷資訊', id='details')
+        with Vertical(id='home-extra'):
+            with Horizontal():
+                yield Button("載入更多", id="next", disabled=True)
+                yield Button("恢復讀取", id="recover")
+                yield Button('診斷資訊', id='details')
+            with Horizontal():
+                yield Button("清除登入資料", id="relogin", variant='warning')
+                yield Button('關閉 APP', id='quit-app')
         yield Static("首次使用請點「登入視窗」，完成後點「完成登入」開始閱讀。", id="status", markup=False)
         yield Static('', id='status-details', markup=False)
         yield Static('↑↓ 選擇 · Enter 閱讀 · 接近底部自動載入 · Ctrl+R 重載並回頂端', id='home-hint', markup=False)
