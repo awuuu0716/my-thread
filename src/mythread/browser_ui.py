@@ -8,7 +8,7 @@ from textual.screen import Screen
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Footer, Label, ListItem, ListView, Static
 
-from .text import article_text
+from .text import article_text, post_preview, text_excerpt
 from .browser import browser_open_error
 
 
@@ -36,9 +36,54 @@ class BridgeList(ListView):
         super().__init__(*args, **kwargs)
         self.pending_more = False
         self.more_timer = None
+        self.restoring_anchor = False
 
     def near_end(self):
         return self.max_scroll_y - self.scroll_y <= max(3, self.size.height)
+
+    def capture_anchor(self, posts):
+        """Remember the focused article and the visible row independently."""
+        selected = posts[self.index]['id'] if self.index is not None and self.index < len(posts) else None
+        for index, child in enumerate(self.children):
+            if child.virtual_region.bottom > self.scroll_y and index < len(posts):
+                return selected, posts[index]['id'], child.virtual_region.y - self.scroll_y
+        return selected, None, 0
+
+    def restore_anchor(self, anchor, posts):
+        selected, visible, offset = anchor
+        ids = [post['id'] for post in posts]
+        self.pending_more = False
+        if not ids:
+            return
+        self.restoring_anchor = True
+        self.index = ids.index(selected) if selected in ids else 0
+
+        def restore_scroll():
+            if not self.is_mounted:
+                return
+            index = ids.index(visible) if visible in ids else self.index
+            if index is not None and index < len(self.children):
+                self.scroll_to(y=max(0, self.children[index].virtual_region.y - offset), animate=False)
+            self.call_after_refresh(self.finish_restoring_anchor)
+
+        self.app.call_after_refresh(restore_scroll)
+
+    def finish_restoring_anchor(self):
+        self.restoring_anchor = False
+
+    def on_resize(self):
+        if self.is_mounted:
+            self.call_after_refresh(self.refresh_previews)
+
+    def refresh_previews(self):
+        owner = self.screen if isinstance(self.screen, CommentsScreen) else self.app
+        posts = owner.posts_data
+        if not posts or len(self.children) != len(posts):
+            return
+        anchor = self.capture_anchor(posts)
+        for child, post in zip(self.children, posts):
+            child.query_one(Label).update(Text(post_preview(post, width=max(12, self.size.width - 6))))
+        self.restore_anchor(anchor, posts)
 
     def queue_more(self):
         if self.near_end():
@@ -69,6 +114,8 @@ class BridgeList(ListView):
 
     def watch_scroll_y(self, old_value, new_value):
         super().watch_scroll_y(old_value, new_value)
+        if self.restoring_anchor:
+            return
         if new_value > old_value:
             self.queue_more()
         elif new_value < old_value:
@@ -83,7 +130,11 @@ class BridgeList(ListView):
 
 
 class BrowserReader(Screen):
-    BINDINGS = [('escape', 'app.pop_screen', '返回')]
+    BINDINGS = [('escape', 'app.pop_screen', '返回'), ('o', 'original', '查看原文')]
+    DEFAULT_CSS = '''
+    BrowserReader #reader-actions { height: 3; }
+    BrowserReader #reader-actions Button { min-width: 8; margin-right: 0; }
+    '''
 
     def __init__(self, post):
         super().__init__()
@@ -93,18 +144,28 @@ class BrowserReader(Screen):
         yield BrowserTitle()
         with VerticalScroll():
             yield Static(Text(article_text(self.post)), id='article')
-        with Horizontal():
+        with Horizontal(id='reader-actions'):
             yield Button('返回 [Esc]', id='back')
             if isinstance(self, BrowserArticle):
                 yield Button('讀取留言 [C]', id='comments')
+            yield Button('原文 [O]', id='original')
             yield Button('關閉 APP', id='quit-app', variant='error')
         yield Footer()
+
+    def action_original(self):
+        # Open only the validated public permalink, following an explicit action.
+        from .browser import extract_posts
+        posts = extract_posts([self.post])
+        if posts:
+            self.app.open_url(posts[0]['permalink'])
 
     def on_button_pressed(self, event):
         event.prevent_default()
         event.stop()
         if event.button.id == 'quit-app':
             self.app.action_safe_quit()
+        elif event.button.id == 'original':
+            self.action_original()
         else:
             self.app.pop_screen()
 
@@ -122,6 +183,8 @@ class BrowserArticle(BrowserReader):
         event.stop()
         if event.button.id == 'comments':
             self.action_comments()
+        elif event.button.id == 'original':
+            self.action_original()
         elif event.button.id == 'quit-app':
             self.app.action_safe_quit()
         else:
@@ -132,6 +195,12 @@ class CommentsScreen(Screen):
     READ_TIMEOUT = 12
     BINDINGS = [('escape', 'back', '返回文章'), ('ctrl+r', 'reload', '整理留言'),
                 ('ctrl+n', 'more', '更多留言')]
+    DEFAULT_CSS = '''
+    CommentsScreen #comments-context { height: auto; max-height: 4; padding: 0 1; }
+    CommentsScreen #comments-caveat { height: auto; color: $text-muted; }
+    CommentsScreen #comments-actions { height: 3; }
+    CommentsScreen #comments-actions Button { min-width: 8; margin-right: 0; }
+    '''
 
     def __init__(self, post):
         super().__init__()
@@ -143,10 +212,12 @@ class CommentsScreen(Screen):
 
     def compose(self):
         yield BrowserTitle()
-        yield Static(Text(f"@{self.post['username']} 的文章留言"))
-        with Horizontal():
+        yield Static(Text(f"@{self.post['username']} 的文章留言\n"
+                          f"{text_excerpt(self.post.get('text', ''), width=48, lines=2)}"), id='comments-context')
+        yield Static('僅顯示網頁已載入的留言；不代表完整數量或回覆層級。', id='comments-caveat', markup=False)
+        with Horizontal(id='comments-actions'):
             yield Button('重新整理', id='comments-read')
-            yield Button('更多留言', id='comments-more')
+            yield Button('更多留言', id='comments-more', disabled=True)
             yield Button('返回文章', id='comments-back')
             yield Button('關閉 APP', id='quit-app', variant='error')
         yield Static('正在開啟留言頁……', id='comments-status', markup=False)
@@ -154,7 +225,20 @@ class CommentsScreen(Screen):
         yield Footer()
 
     def on_mount(self):
+        self.update_controls()
         self.load('open')
+
+    def update_controls(self):
+        self.query_one('#comments-read', Button).disabled = self.busy or self.leaving
+        self.query_one('#comments-more', Button).disabled = self.busy or self.leaving or not self.posts_data
+        self.refresh_bindings()
+
+    def check_action(self, action, parameters):
+        if action in {'reload', 'more'} and (self.busy or self.leaving):
+            return None
+        if action == 'more' and not self.posts_data:
+            return None
+        return True
 
     def action_reload(self):
         self.load('read')
@@ -181,6 +265,7 @@ class CommentsScreen(Screen):
         if self.busy or self.leaving:
             return
         self.busy = True
+        self.update_controls()
         status = self.query_one('#comments-status', Static)
         status.update('留言載入中……')
         try:
@@ -206,6 +291,7 @@ class CommentsScreen(Screen):
             status.update(browser_status(source, batch))
             if batch.state in {'ready', 'empty', 'login'}:
                 view = self.query_one(BridgeList)
+                anchor = view.capture_anchor(self.posts_data)
                 old_ids = [p['id'] for p in self.posts_data]
                 append = action != 'read' and bool(old_ids) and [p['id'] for p in batch.posts[:len(old_ids)]] == old_ids
                 if not append:
@@ -213,20 +299,28 @@ class CommentsScreen(Screen):
                     view.scroll_home(animate=False)
                 self.posts_data = batch.posts
                 for index, post in enumerate(batch.posts):
-                    text = Text(f"@{post['username']}\n{post['text'] or '（無文字內容）'}\n{post['permalink']}")
+                    text = Text(post_preview(post, width=max(12, view.size.width - 6)))
                     if append and index < len(old_ids):
                         view.children[index].query_one(Label).update(text)
                     else:
                         await view.append(ListItem(Label(text)))
-                if batch.posts and not append:
-                    view.index = 0
-                    view.focus()
+                if batch.posts:
+                    if action != 'read' and old_ids:
+                        view.restore_anchor(anchor, batch.posts)
+                    else:
+                        view.index = 0
+                        view.focus()
         except Exception:
             if not self.leaving:
                 status.update('留言讀取失敗，請重試。')
         finally:
             self.busy = False
             self.next_auto_at = time.monotonic() + 2
+            if self.is_mounted and not self.leaving:
+                self.update_controls()
+            finish_quit = getattr(self.app, 'finish_pending_quit', None)
+            if finish_quit:
+                finish_quit()
 
     @work
     async def action_back(self):
