@@ -30,7 +30,16 @@ python -m venv .venv
 .\.venv\Scripts\mythread.exe
 ```
 
-可選參數：
+Windows 完成安裝後，也可在專案根目錄使用快捷啟動，在新的 PowerShell 視窗開啟 APP：
+
+```powershell
+.\start
+.\start --headed
+```
+
+亦可雙擊 `start.cmd`。啟動器會使用此專案的 `.venv`，優先開啟 PowerShell 7，未安裝時使用 Windows PowerShell；APP 結束後視窗會保留，方便查看訊息。PowerShell 的 `start` 是內建別名，請加上 `.\` 前綴，以執行專案的啟動器。
+
+直接執行的可選參數：
 
 ```powershell
 .\.venv\Scripts\mythread.exe --headed

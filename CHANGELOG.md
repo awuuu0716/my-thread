@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Windows 新增 `.\start`／`start.cmd` 快捷啟動，在新 PowerShell 視窗執行專案虛擬環境中的 APP，支援轉傳 `--headed` 等參數。
+
 ### Terminal UX 改善
 
 - 將文章末尾獨立的分篇編號（包含拆成三行的 1／2）移到作者旁，列表與詳情正文不再重複顯示。
