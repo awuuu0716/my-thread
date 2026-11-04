@@ -60,6 +60,7 @@ async def test_click_login_then_read_without_restarting_browser():
         await pilot.click('#open')
         await app.workers.wait_for_complete()
         source.switch_mode.assert_awaited_with(False)
+        await pilot.pause(.1)
         await pilot.click('#background')
         await app.workers.wait_for_complete()
         source.switch_mode.assert_awaited_once_with(False)
@@ -92,7 +93,7 @@ async def test_complete_login_preserves_verified_page(monkeypatch, final_state):
         page.goto.assert_not_awaited()
         page.reload.assert_not_awaited()
         assert source.headless is False
-        assert f'[{final_state}]' in str(app.query_one('#status', Static).render())
+        assert ('已載入' if final_state == 'ready' else '需要登入') in str(app.query_one('#status', Static).render())
         assert len(app.posts_data) == (1 if final_state == 'ready' else 0)
 
 
@@ -125,6 +126,8 @@ async def test_recover_closed_browser_keeps_profile_and_reads(tmp_path, logged_i
     source.open = AsyncMock(side_effect=reopen)
     app = BrowserApp(source, auto_start=False)
     async with app.run_test(size=(110, 35)) as pilot:
+        await pilot.click('#more-actions')
+        await pilot.pause(.1)
         await pilot.click('#recover')
         await app.workers.wait_for_complete()
         source.open.assert_awaited_once()
@@ -132,7 +135,7 @@ async def test_recover_closed_browser_keeps_profile_and_reads(tmp_path, logged_i
         assert app.query_one('#background', Button).disabled
         if not logged_in:
             status = str(app.query_one('#status', Static).render())
-            assert '[login]' in status and '登入視窗' in status
+            assert '需要登入' in status and '登入視窗' in status
         assert 'stale' not in source.posts
         assert marker.exists()
 
@@ -160,7 +163,11 @@ async def test_relogin_removes_only_owned_profile_after_close(tmp_path):
     source.open = AsyncMock(side_effect=reopen)
     app = BrowserApp(source, auto_start=False)
     async with app.run_test(size=(110, 35)) as pilot:
+        await pilot.click('#more-actions')
+        await pilot.pause(.1)
         await pilot.click('#relogin')
+        await pilot.pause(.1)
+        await pilot.click('#confirm-clear')
         await app.workers.wait_for_complete()
         assert events == ['close', 'open']
         assert not source.posts and not app.posts_data

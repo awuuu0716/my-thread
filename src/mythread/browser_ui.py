@@ -10,13 +10,20 @@ from textual.widgets import Button, Footer, Label, ListItem, ListView, Static
 
 from .text import article_text, post_preview, text_excerpt
 from .browser import browser_open_error
+from .dialogs import ClearLoginDialog
 
 
 def browser_status(source, batch):
-    message = f'[{batch.state}] {batch.message}'
-    if getattr(source, 'headless', False) and batch.state in {'login', 'error', 'unconfirmed'}:
-        message += ' · 背景模式：請返回首頁點「登入視窗」，手動完成登入／驗證後點「完成登入」。'
-    return message
+    if batch.state == 'login':
+        return '需要登入或驗證：請返回首頁點「登入視窗」，在瀏覽器完成後點「完成登入」。'
+    titles = {'ready': '已載入', 'loading': '仍在載入', 'empty': '頁面顯示空結果',
+              'unconfirmed': '尚未確認內容', 'error': '讀取失敗', 'closed': '瀏覽器已關閉'}
+    message = batch.message.split('DOM 診斷：', 1)[0].strip()
+    message = message.replace('保留 ', '已載入 ').replace('稍後按重新整理', '稍後重試')
+    result = f"{titles.get(batch.state, '讀取狀態')} · {message}" if message else titles.get(batch.state, '讀取狀態')
+    if getattr(source, 'headless', False) and batch.state in {'error', 'unconfirmed'}:
+        result += ' · 如需查看網站，請返回首頁點「登入視窗」。'
+    return result
 
 
 class BrowserTitle(Static):
@@ -341,12 +348,18 @@ class CommentsScreen(Screen):
 
 
 class BrowserApp(App):
+    OPERATION_TIMEOUT = 40
     TITLE = "myThread · 唯讀瀏覽器版"
     BINDINGS = [("ctrl+q", "safe_quit", "離開"), ("ctrl+r", "read", "重新整理"),
-                ("ctrl+n", "next", "下一批"), ("ctrl+b", "open", "登入視窗")]
+                ("ctrl+n", "next", "載入更多"), ("ctrl+b", "open", "登入視窗")]
     CSS = """
     Horizontal { height: 3; }
     Button { min-width: 10; margin-right: 1; }
+    #home-actions, #home-extra { height: auto; min-height: 3; }
+    #home-actions Button { min-width: 8; padding: 0 1; }
+    #home-extra Button { min-width: 10; padding: 0 1; }
+    #home-hint { height: auto; color: $text-muted; }
+    #status-details { height: auto; color: $text-muted; }
     #status { height: auto; min-height: 2; }
     #comments-status { height: auto; min-height: 2; }
     ListView { height: 1fr; border: round $primary; }
@@ -360,8 +373,14 @@ class BrowserApp(App):
         self.source, self.busy, self.posts_data = source, False, []
         self.next_auto_at = 0.0
         self.auto_start = auto_start
+        self.state = "initial"
+        self.extra_open = False
+        self.quit_pending = False
+        self.quit_timer = None
+        self.diagnostics = ''
 
     def on_mount(self):
+        self.update_actions()
         if self.auto_start:
             self.perform('startup')
 
@@ -377,47 +396,126 @@ class BrowserApp(App):
 
     def compose(self):
         yield BrowserTitle()
-        with Horizontal():
-            yield Button("登入視窗", id="open")
+        with Horizontal(id='home-actions'):
+            yield Button("登入視窗", id="open", variant='primary')
             yield Button("完成登入", id="background", disabled=self.source.headless is True)
             yield Button("重新整理", id="read")
-            yield Button("下一批", id="next")
+            yield Button("載入更多", id="next", disabled=True)
+            yield Button("更多", id="more-actions")
+        with Horizontal(id='home-extra'):
             yield Button("恢復讀取", id="recover")
-            yield Button("重新登入", id="relogin", variant='warning')
-            yield Button('關閉 APP', id='quit-app', variant='error')
-        yield Static("首次使用請點「登入視窗」，完成後點「完成登入」開始閱讀；請保留瀏覽器開啟，可自行最小化。", id="status", markup=False)
+            yield Button("清除登入資料", id="relogin", variant='warning')
+            yield Button('關閉 APP', id='quit-app')
+            yield Button('診斷資訊', id='details')
+        yield Static("首次使用請點「登入視窗」，完成後點「完成登入」開始閱讀。", id="status", markup=False)
+        yield Static('', id='status-details', markup=False)
+        yield Static('↑↓ 選擇 · Enter 閱讀 · 接近底部自動載入 · Ctrl+R 重載並回頂端', id='home-hint', markup=False)
         yield BridgeList()
         yield Footer()
+
+    def check_action(self, action, parameters):
+        if action in {'open', 'read', 'next'}:
+            if len(self.screen_stack) != 1:
+                return False
+            if self.busy or self.quit_pending:
+                return False
+            if action == 'next' and not self.posts_data:
+                return False
+        return True
+
+    def update_actions(self):
+        if not self.is_mounted or not self.screen_stack or not self.screen_stack[0].query('#home-extra'):
+            return
+        root = self.screen_stack[0]
+        if not self.diagnostics:
+            root.query_one('#status-details').display = False
+        root.query_one('#home-extra').display = self.extra_open or self.state == 'closed'
+        for button in root.query('#home-actions Button, #home-extra Button'):
+            button.disabled = self.busy or self.quit_pending
+            button.variant = 'warning' if button.id == 'relogin' else 'default'
+        root.query_one('#quit-app', Button).disabled = False
+        root.query_one('#more-actions', Button).disabled = False
+        root.query_one('#more-actions', Button).label = '收合' if self.extra_open else '更多'
+        root.query_one('#next', Button).disabled = self.busy or self.quit_pending or not self.posts_data
+        root.query_one('#next', Button).display = bool(self.posts_data)
+        root.query_one('#background', Button).display = self.source.headless is not True and self.state in {'initial', 'login'}
+        root.query_one('#background', Button).disabled = self.busy or self.quit_pending or self.source.headless is True
+        root.query_one('#open', Button).display = self.extra_open or self.state != 'ready'
+        main_id = 'recover' if self.state == 'closed' else 'background' if self.source.headless is not True and self.state in {'initial', 'login'} else 'read' if self.state == 'ready' else 'open'
+        root.query_one('#' + main_id, Button).variant = 'primary'
+        self.refresh_bindings()
 
     def action_open(self):
         self.perform("open")
 
     def action_safe_quit(self):
         if self.busy or any(isinstance(s, CommentsScreen) and s.busy for s in self.screen_stack):
-            self.notify("請等目前瀏覽器操作完成後再離開。")
+            self.quit_pending = True
+            self.update_actions()
+            self.notify("已排定關閉，會在目前操作結束後離開。")
+            if self.quit_timer is None:
+                self.quit_timer = self.set_interval(.2, self.finish_pending_quit)
         else:
+            self.exit()
+
+    def finish_pending_quit(self):
+        if self.quit_pending and not self.busy and not any(isinstance(s, CommentsScreen) and s.busy for s in self.screen_stack):
             self.exit()
 
     def action_read(self):
         self.perform("read")
 
     def action_next(self):
-        self.perform("next")
+        if self.posts_data:
+            self.perform("next")
+
+    def confirm_relogin(self, confirmed):
+        if confirmed:
+            self.perform('relogin')
+
+    def record_batch(self, batch):
+        # These messages are authored locally by the source; never retain raw DOM/errors.
+        self.diagnostics = f'狀態：{batch.state} · {batch.message}'
+        details = self.screen_stack[0].query_one('#status-details', Static)
+        details.update(self.diagnostics)
 
     def on_button_pressed(self, event: Button.Pressed):
+        event.stop()
         if event.button.id == 'quit-app':
-            event.stop()
             self.action_safe_quit()
+        elif event.button.id == 'more-actions':
+            self.extra_open = not self.extra_open
+            self.update_actions()
+        elif event.button.id == 'relogin':
+            self.push_screen(ClearLoginDialog(), self.confirm_relogin)
+        elif event.button.id == 'details':
+            details = self.query_one('#status-details', Static)
+            details.update(self.diagnostics or '目前沒有診斷資訊。')
+            details.display = not details.display
         else:
             self.perform(event.button.id)
+
+    async def browser_call(self, operation):
+        task = asyncio.create_task(operation)
+        task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), self.OPERATION_TIMEOUT)
+        except TimeoutError:
+            # Release the owned browser before cancelling an outstanding protocol call.
+            await asyncio.wait_for(self.source.close(), 5)
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            raise
 
     @work
     async def perform(self, action):
         if self.busy or len(self.screen_stack) != 1:
             return
         self.busy = True
+        self.update_actions()
         status = self.query_one("#status", Static)
-        status.update("載入中……")
+        status.update("正在載入更多文章……" if action == "next" else "正在重載動態並回到頂端……" if action == "read" else "正在讀取文章……")
         try:
             if action in {'open', 'relogin'}:
                 self.posts_data = []
@@ -425,22 +523,21 @@ class BrowserApp(App):
                 status.update('正在切換專用瀏覽器……')
                 if action == 'relogin':
                     status.update('正在清除專用瀏覽器登入資料並開啟登入視窗……')
-                    await self.source.relogin()
+                    await self.browser_call(self.source.relogin())
                 else:
-                    await self.source.switch_mode(False)
-                self.query_one('#background', Button).disabled = self.source.headless is True
+                    await self.browser_call(self.source.switch_mode(False))
+                self.state = 'login'
                 status.update('請在專用瀏覽器手動登入／完成驗證並返回 Threads，然後點「完成登入」。請保留瀏覽器開啟，可自行最小化。')
                 return
             elif action == 'recover':
                 status.update('正在恢復瀏覽器與文章讀取……')
-                await self.source.recover()
-                self.query_one('#background', Button).disabled = self.source.headless is True
+                await self.browser_call(self.source.recover())
             elif action == 'startup':
                 status.update('正在開啟專用瀏覽器……')
-                await self.source.open()
+                await self.browser_call(self.source.open())
                 status.update('瀏覽器已開啟，正在讀取文章……')
-            batch = (await self.source.read(refresh=True) if action == 'read'
-                     else await self.source.read(action == "next"))
+            batch = (await self.browser_call(self.source.read(refresh=True)) if action == 'read'
+                     else await self.browser_call(self.source.read(action == "next")))
             if action in {'startup', 'background', 'recover'}:
                 # DOMContentLoaded may precede the rendered feed. Bounded retry,
                 # with no scrolling or automatic login/verification interaction.
@@ -453,12 +550,13 @@ class BrowserApp(App):
                     if batch.state not in retry_states:
                         break
                     await asyncio.sleep(.5)
-                    batch = await self.source.read(False)
+                    batch = await self.browser_call(self.source.read(False))
+            self.state = batch.state
+            self.record_batch(batch)
             status.update(browser_status(self.source, batch))
             if batch.state in {"ready", "empty", "login"}:
-                view = self.query_one(ListView)
-                old_index = view.index
-                old_scroll = view.scroll_y
+                view = self.query_one(BridgeList)
+                anchor = view.capture_anchor(self.posts_data)
                 previous_ids = [post['id'] for post in self.posts_data]
                 new_ids = [post['id'] for post in batch.posts]
                 append_only = action != 'read' and bool(previous_ids) and new_ids[:len(previous_ids)] == previous_ids
@@ -467,22 +565,28 @@ class BrowserApp(App):
                     view.scroll_home(animate=False)
                 self.posts_data = batch.posts
                 for index, post in enumerate(batch.posts):
-                    label = Text(f"@{post['username']}\n{post['text'] or '（無文字內容）'}\n{post['permalink']}")
+                    label = Text(post_preview(post, width=max(12, view.size.width - 6)))
                     if append_only and index < len(previous_ids):
                         view.children[index].query_one(Label).update(label)
                     else:
                         await view.append(ListItem(Label(label)))
                 if batch.posts:
-                    if not append_only:
-                        view.index = 0 if action == 'read' else min(old_index or 0, len(batch.posts) - 1)
+                    if action != 'read' and previous_ids:
+                        view.restore_anchor(anchor, batch.posts)
+                    elif not append_only:
+                        view.index = 0
                         view.focus()
-                    else:
-                        self.call_after_refresh(view.scroll_to, y=old_scroll, animate=False)
+        except TimeoutError:
+            self.state = "closed"
+            status.update("讀取逾時，已停止本次操作。請點「恢復讀取」重新開啟瀏覽器。")
         except Exception as exc:
+            self.state = "error"
             status.update(browser_open_error(exc))
         finally:
             self.next_auto_at = time.monotonic() + 2
             self.busy = False
+            self.update_actions()
+            self.finish_pending_quit()
 
     def on_list_view_selected(self, event: ListView.Selected):
         index = event.list_view.index
