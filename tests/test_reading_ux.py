@@ -137,3 +137,21 @@ async def test_resize_rewraps_previews_without_requesting_more():
         assert all(child.region.height <= 7 for child in view.children)
         assert screen.posts_data[view.index]['id'] == selected
         source.replies.read.assert_not_awaited()
+
+
+async def test_cancelled_anchor_completion_does_not_break_ui_callbacks():
+    source = AsyncMock()
+    source.headless = True
+    source.open_replies.return_value = BrowserBatch('ready', posts(8))
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(60, 20)) as pilot:
+        screen = CommentsScreen(posts()[0])
+        await app.push_screen(screen)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        view = screen.query_one(BridgeList)
+        settled = view.restore_anchor(view.capture_anchor(screen.posts_data), screen.posts_data)
+        settled.cancel()
+        await pilot.pause()
+        assert settled.cancelled()
+        assert not view.restoring_anchor

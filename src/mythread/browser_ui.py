@@ -44,6 +44,24 @@ class BridgeList(ListView):
         self.pending_more = False
         self.more_timer = None
         self.restoring_anchor = False
+        self.anchor_generation = 0
+        self.pending_anchor = None
+        self.preview_width = None
+        self.setting_anchor_index = False
+
+    def watch_index(self, old_index, new_index):
+        # A new user selection supersedes any restore queued by an older layout.
+        if not self.setting_anchor_index:
+            self.anchor_generation += 1
+            self.restoring_anchor = False
+            self.pending_anchor = None
+        super().watch_index(old_index, new_index)
+
+    def scroll_to_widget(self, widget, **kwargs):
+        if self.restoring_anchor:
+            return False
+        kwargs['immediate'] = True
+        return super().scroll_to_widget(widget, **kwargs)
 
     def near_end(self):
         return self.max_scroll_y - self.scroll_y <= max(3, self.size.height)
@@ -57,26 +75,47 @@ class BridgeList(ListView):
         return selected, None, 0
 
     def restore_anchor(self, anchor, posts):
+        """Restore after layout; callers may await the returned completion future."""
+        settled = asyncio.get_running_loop().create_future()
+
+        def complete():
+            if not settled.done():
+                settled.set_result(None)
+
         selected, visible, offset = anchor
         ids = [post['id'] for post in posts]
         self.pending_more = False
         if not ids:
-            return
+            complete()
+            return settled
+        self.anchor_generation += 1
+        generation = self.anchor_generation
+        self.pending_anchor = anchor
         self.restoring_anchor = True
-        self.index = ids.index(selected) if selected in ids else 0
+        self.setting_anchor_index = True
+        try:
+            self.index = ids.index(selected) if selected in ids else 0
+        finally:
+            self.setting_anchor_index = False
 
         def restore_scroll():
-            if not self.is_mounted:
+            if not self.is_mounted or generation != self.anchor_generation:
+                complete()
                 return
             index = ids.index(visible) if visible in ids else self.index
             if index is not None and index < len(self.children):
-                self.scroll_to(y=max(0, self.children[index].virtual_region.y - offset), animate=False)
-            self.call_after_refresh(self.finish_restoring_anchor)
+                self.scroll_to(y=max(0, self.children[index].virtual_region.y - offset),
+                               animate=False, immediate=True)
+            self.finish_restoring_anchor(generation)
+            complete()
 
         self.app.call_after_refresh(restore_scroll)
+        return settled
 
-    def finish_restoring_anchor(self):
-        self.restoring_anchor = False
+    def finish_restoring_anchor(self, generation):
+        if generation == self.anchor_generation:
+            self.restoring_anchor = False
+            self.pending_anchor = None
 
     def on_resize(self):
         if self.is_mounted:
@@ -85,11 +124,16 @@ class BridgeList(ListView):
     def refresh_previews(self):
         owner = self.screen if isinstance(self.screen, CommentsScreen) else self.app
         posts = owner.posts_data
-        if not posts or len(self.children) != len(posts):
+        width = max(12, self.size.width - 6)
+        if owner.busy:
+            self.preview_width = None
             return
-        anchor = self.capture_anchor(posts)
+        if not posts or len(self.children) != len(posts) or width == self.preview_width:
+            return
+        self.preview_width = width
+        anchor = self.pending_anchor or self.capture_anchor(posts)
         for child, post in zip(self.children, posts):
-            child.query_one(Label).update(Text(post_preview(post, width=max(12, self.size.width - 6))))
+            child.query_one(Label).update(Text(post_preview(post, width=width)))
         self.restore_anchor(anchor, posts)
 
     def queue_more(self):
@@ -295,6 +339,9 @@ class CommentsScreen(Screen):
                 return
             if self.leaving:
                 return
+            record_batch = getattr(self.app, 'record_batch', None)
+            if record_batch:
+                record_batch(batch)
             status.update(browser_status(source, batch))
             if batch.state in {'ready', 'empty', 'login'}:
                 view = self.query_one(BridgeList)
@@ -303,7 +350,8 @@ class CommentsScreen(Screen):
                 append = action != 'read' and bool(old_ids) and [p['id'] for p in batch.posts[:len(old_ids)]] == old_ids
                 if not append:
                     await view.clear()
-                    view.scroll_home(animate=False)
+                    if action == 'read' or not old_ids:
+                        view.scroll_home(animate=False)
                 self.posts_data = batch.posts
                 for index, post in enumerate(batch.posts):
                     text = Text(post_preview(post, width=max(12, view.size.width - 6)))
@@ -313,7 +361,7 @@ class CommentsScreen(Screen):
                         await view.append(ListItem(Label(text)))
                 if batch.posts:
                     if action != 'read' and old_ids:
-                        view.restore_anchor(anchor, batch.posts)
+                        await view.restore_anchor(anchor, batch.posts)
                     else:
                         view.index = 0
                         view.focus()
@@ -325,6 +373,7 @@ class CommentsScreen(Screen):
             self.next_auto_at = time.monotonic() + 2
             if self.is_mounted and not self.leaving:
                 self.update_controls()
+                self.query_one(BridgeList).refresh_previews()
             finish_quit = getattr(self.app, 'finish_pending_quit', None)
             if finish_quit:
                 finish_quit()
