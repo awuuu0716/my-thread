@@ -618,7 +618,8 @@ class BrowserApp(App):
                 append_only = action != 'read' and bool(previous_ids) and new_ids[:len(previous_ids)] == previous_ids
                 if not append_only:
                     await view.clear()
-                    view.scroll_home(animate=False)
+                    if action == 'read' or not previous_ids:
+                        view.scroll_home(animate=False)
                 self.posts_data = batch.posts
                 for index, post in enumerate(batch.posts):
                     label = Text(post_preview(post, width=max(12, view.size.width - 6)))
@@ -628,7 +629,7 @@ class BrowserApp(App):
                         await view.append(ListItem(Label(label)))
                 if batch.posts:
                     if action != 'read' and previous_ids:
-                        view.restore_anchor(anchor, batch.posts)
+                        await view.restore_anchor(anchor, batch.posts)
                     elif not append_only:
                         view.index = 0
                         view.focus()
@@ -642,6 +643,7 @@ class BrowserApp(App):
             self.next_auto_at = time.monotonic() + 2
             self.busy = False
             self.update_actions()
+            self.query_one(BridgeList).refresh_previews()
             self.finish_pending_quit()
 
     def on_list_view_selected(self, event: ListView.Selected):
