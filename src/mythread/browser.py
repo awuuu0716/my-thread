@@ -5,6 +5,7 @@ Sources:    BrowserSource (home feed tab, owns Chromium)  ->  ReplySource (one c
 Every public read returns a BrowserBatch and never raises (except CancelledError).
 """
 import asyncio
+import os
 import re
 import shutil
 from pathlib import Path
@@ -15,7 +16,7 @@ from platformdirs import user_data_dir
 from .dom import SCROLL, SNAPSHOT
 from .messages import Msg, browser_open_error, home_ready_text, reply_ready_text
 from .model import (COUNT_PATTERN, HOME_URL, MAX_RETAINED_POSTS, THREADS_HOSTS,
-                    BrowserBatch, Post, State)
+                    BrowserBatch, Post, ProfileClearError, State)
 from .runtime import configure_browser_runtime
 from .text import plain
 
@@ -30,6 +31,26 @@ REPLY_RELOAD_TIMEOUT_MS = 8000
 VIEWPORT = {'width': 1280, 'height': 900}
 _PERMALINK_PATH = re.compile(r'/@([\w.]+)/post/([A-Za-z0-9_-]+)/?')
 _COUNT = re.compile(COUNT_PATTERN, re.I)
+
+
+def sandbox_enabled() -> bool:
+    """Chromium's renderer sandbox; Playwright disables it unless asked.
+
+    Opt-out exists only for Linux hosts that block unprivileged user namespaces.
+    """
+    return os.environ.get('MYTHREAD_DISABLE_SANDBOX') != '1'
+
+
+def private_dir(path: Path) -> None:
+    """Create the profile readable only by the current user (POSIX; Windows uses per-user AppData ACLs)."""
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name == 'posix':
+        os.chmod(path, 0o700)  # mkdir's mode is ignored for an existing directory
+
+
+def _owned_profile(path: Path) -> bool:
+    """Only a real (non-redirected) directory literally named `profile` may be removed."""
+    return path.name == 'profile' and not path.is_symlink() and path.resolve() == path
 
 
 def extract_posts(rows: list[dict]) -> list[Post]:
@@ -89,6 +110,7 @@ class BrowserSource(_PageReader):
     """Owns the Playwright runtime, the persistent profile and the home-feed page."""
     # Polling budgets: (attempts, seconds between attempts).
     REFRESH_SETTLE = (10, .5)    # after reload, wait while loading/error
+    CLEAR_RETRIES = (4, .5)      # profile removal; Windows may hold locks briefly after close
     SCROLL_ROUNDS = 6            # scrolls per "next" request
     SCROLL_POLLS = (4, .25)      # snapshots after each scroll
 
@@ -108,12 +130,12 @@ class BrowserSource(_PageReader):
         await self.close()
         configure_browser_runtime()
         from playwright.async_api import async_playwright
-        self.profile.mkdir(parents=True, exist_ok=True)
+        private_dir(self.profile)
         try:
             self.runtime = await async_playwright().start()
             self.context = await self.runtime.chromium.launch_persistent_context(
                 self.profile, headless=self.headless, channel='chromium',
-                viewport=VIEWPORT, accept_downloads=False)
+                chromium_sandbox=sandbox_enabled(), viewport=VIEWPORT, accept_downloads=False)
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             await self.page.goto(start_url, wait_until='domcontentloaded', timeout=NAV_TIMEOUT_MS)
         except BaseException:
@@ -155,12 +177,24 @@ class BrowserSource(_PageReader):
         async with self.lock:
             profile = self.profile.absolute()
             # Never follow a redirected profile directory when removing data.
-            if profile.name != 'profile' or profile.resolve() != profile:
-                raise RuntimeError('Unsafe browser profile path')
+            if not _owned_profile(profile):
+                raise ProfileClearError('Unsafe browser profile path')
             await self.close()
             self.posts.clear()
-            if profile.exists():
-                shutil.rmtree(profile)
+            attempts, delay = self.CLEAR_RETRIES
+            for _ in range(attempts):
+                if not os.path.lexists(profile):
+                    break
+                # Re-check after every await: the path may have been swapped meanwhile.
+                if not _owned_profile(profile):
+                    raise ProfileClearError('Unsafe browser profile path')
+                shutil.rmtree(profile, ignore_errors=True)
+                if not os.path.lexists(profile):
+                    break
+                await asyncio.sleep(delay)
+            else:
+                # Partial removal can leave cookies behind; never report success.
+                raise ProfileClearError('Profile still present')
             self.headless = False
             await self.open()
 

@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+### 安全強化
+
+- 專用 Chromium 改為啟用沙箱（Playwright 預設為 `--no-sandbox`）。Linux 主機若禁止非特權命名空間而無法啟動，可設定 `MYTHREAD_DISABLE_SANDBOX=1` 明確停用（降低安全性）。
+- 專用 profile 在 POSIX 平台強制為僅擁有者可存取（`0700`）。
+- 「清除登入資料」在關閉瀏覽器後重新檢查路徑；遇到檔案鎖定會重試，仍未清除時明確顯示失敗，不再開啟登入視窗。
+- 顯示文字移除 Unicode 雙向控制與零寬字元，避免畫面內容被反轉或隱藏偽造。
+
 - 首頁「載入更多」收進「更多」，「更多」固定於工具列右上角；展開操作分兩列靠右排列，保留 Ctrl+N 與自動預載。
 
 - Windows 新增 `.\start`／`start.cmd` 快捷啟動，在新 PowerShell 視窗執行專案虛擬環境中的 APP，支援轉傳 `--headed` 等參數。

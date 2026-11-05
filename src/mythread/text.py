@@ -8,9 +8,16 @@ from rich.text import Text
 EMPTY_TEXT = '未擷取到文字，可查看原文'
 
 
+# Bidi overrides/isolates and invisible marks can reorder or hide text on screen
+# (Trojan Source style spoofing). ZWJ/ZWNJ are kept: emoji and scripts need them.
+_INVISIBLE = frozenset({0x061C, 0x200B, 0x200E, 0x200F, 0x2060, 0xFEFF,
+                        *range(0x202A, 0x202F), *range(0x2066, 0x206A)})
+
+
 def plain(value: str) -> str:
-    """Remove terminal control characters; callers render this as literal text."""
-    return ''.join(c for c in str(value) if c in '\n\t' or (ord(c) >= 32 and not 127 <= ord(c) <= 159))
+    """Remove terminal control and bidi/invisible characters; callers render this as literal text."""
+    return ''.join(c for c in str(value) if c in '\n\t' or (
+        ord(c) >= 32 and not 127 <= ord(c) <= 159 and ord(c) not in _INVISIBLE))
 
 
 def text_excerpt(value: str, *, width=72, lines=3) -> str:
