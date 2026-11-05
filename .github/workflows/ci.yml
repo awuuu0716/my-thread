@@ -63,4 +63,5 @@ jobs:
           python -m venv /tmp/mythread-wheel-smoke
           /tmp/mythread-wheel-smoke/bin/python -m pip install dist/*.whl
           /tmp/mythread-wheel-smoke/bin/mythread --help
+          /tmp/mythread-wheel-smoke/bin/python -c "import mythread.browser_ui"  # page scripts packaged
           /tmp/mythread-wheel-smoke/bin/mythread --version

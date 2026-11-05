@@ -85,6 +85,8 @@ def main():
             '--distpath', release, '--workpath', Path(work) / 'work', '--specpath', work,
             '--paths', ROOT / 'src',
             '--collect-all', 'textual', '--collect-all', 'playwright',
+            # Page scripts read via importlib.resources (mythread/dom/__init__.py).
+            '--add-data', f"{ROOT / 'src' / 'mythread' / 'dom' / '*.js'}{os.pathsep}mythread/dom",
             '--recursive-copy-metadata', 'mythread-terminal',
             '--exclude-module', 'httpx', '--exclude-module', 'keyring',
             ROOT / 'scripts' / 'portable_entry.py')

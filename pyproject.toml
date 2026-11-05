@@ -29,6 +29,10 @@ mythread = "mythread.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Page scripts loaded at runtime by mythread.dom; also bundled in scripts/build_windows.py.
+"mythread.dom" = ["*.js"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

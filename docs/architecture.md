@@ -5,14 +5,19 @@
 | 模組 | 責任 |
 | --- | --- |
 | `cli.py` | 單一入口、可見／背景參數、版本、自我檢查、退出清理 |
-| `browser.py` | 持久化 context、首頁／留言分頁、切換模式、DOM 擷取與去重 |
-| `browser_ui.py` | Textual 列表、閱讀、預載、留言、登入按鈕、返回與關閉 |
+| `model.py` | 共用資料契約：`State`、`Post`、`BrowserBatch`、Threads host、留言數格式、保留上限 |
+| `dom/*.js` | 在頁面內執行的 `SNAPSHOT`／`SCROLL`；所有 DOM 版面假設集中於此 |
+| `browser.py` | 持久化 context、首頁／留言分頁、切換模式、`classify()` 與 `extract_posts()` 去重 |
+| `messages.py` | 所有狀態訊息文字與挑選訊息的純函式（`browser_status`、`browser_open_error`） |
+| `widgets.py` | `BridgeList`（錨點保留、預載）、`FeedOwner` 契約、`ButtonActions`、逾時清理 `call_with_deadline` |
+| `screens.py` | 文章閱讀、留言列表（皆繼承 `SubScreen`：Esc／右鍵返回） |
+| `browser_ui.py` | 首頁 `BrowserApp`：`HomeAction`、主操作選擇、讀取與自動補足流程 |
 | `dialogs.py` | 清除登入資料前的確認視窗，預設取消 |
 | `text.py` | 純文字清理與文章格式，不依賴外部服務 |
 | `runtime.py` | exe 以自身目錄定位隨附 Chromium，不依賴開發機快取 |
 | `selftest.py` | 暫存 profile、合成 HTML、Textual headless 檢查 |
 
-`BrowserBatch` 為 `state`、`posts`、`message`；文章欄位為 `id`、`username`、`text`、`permalink`。狀態包含 ready、login、loading、empty、unconfirmed、error、closed；未辨識不是空結果，新增 0 不是確認到底。
+`BrowserBatch` 為 `state`、`posts`、`message`；文章欄位為 `id`、`username`、`text`、`permalink`、選用 `reply_count`（定義於 `model.py`）。狀態包含 ready、login、loading、empty、unconfirmed、error、closed；未辨識不是空結果，新增 0 不是確認到底。
 
 ## 擷取與捲動
 
