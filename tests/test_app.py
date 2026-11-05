@@ -7,6 +7,7 @@ import pytest
 from mythread.browser import BrowserBatch, BrowserSource
 from mythread.browser_ui import BrowserApp
 from mythread.cli import parser, run
+from mythread.model import ProfileClearError
 from mythread.runtime import configure_browser_runtime
 from mythread.text import article_text, plain
 
@@ -21,6 +22,9 @@ def test_single_entry_and_removed_api_commands():
 
 def test_safe_text_and_article_format():
     assert plain('a\x1b\x00\x85\nb') == 'a\nb'
+    # Bidi overrides/isolates and invisible marks are stripped; ZWJ emoji survive.
+    assert plain('safe\u202egnp.exe\u2066x\u2069\u200b\ufeff') == 'safegnp.exex'
+    assert plain('\U0001F468\u200d\U0001F469') == '\U0001F468\u200d\U0001F469'
     text = article_text({'username': 'alice', 'text': '[red]literal[/red]', 'permalink': 'https://example.test'})
     assert '[red]literal[/red]' in text
     assert '@alice' in text
@@ -188,6 +192,95 @@ async def test_relogin_does_not_delete_profile_if_close_fails(tmp_path):
     source.open.assert_not_awaited()
 
 
+def _redirect(link: Path, target: Path) -> None:
+    """A symlink on POSIX; a junction on Windows (no admin rights needed)."""
+    if sys.platform == 'win32':
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+async def test_relogin_refuses_profile_swapped_for_redirect_during_close(tmp_path):
+    source = BrowserSource()
+    source.profile = tmp_path / 'profile'
+    source.profile.mkdir()
+    victim = tmp_path / 'victim'
+    victim.mkdir()
+    (victim / 'important').write_text('keep')
+
+    async def swap():
+        source.profile.rename(tmp_path / 'moved')
+        _redirect(source.profile, victim)
+
+    source.close = AsyncMock(side_effect=swap)
+    source.open = AsyncMock()
+    try:
+        with pytest.raises(ProfileClearError):
+            await source.relogin()
+        assert (victim / 'important').read_text() == 'keep'
+        source.open.assert_not_awaited()
+    finally:
+        import os
+        os.unlink(source.profile) if source.profile.is_symlink() else os.rmdir(source.profile)
+
+
+async def test_relogin_reports_incomplete_removal_and_keeps_browser_closed(monkeypatch, tmp_path):
+    source = BrowserSource()
+    source.profile = tmp_path / 'profile'
+    source.profile.mkdir()
+    (source.profile / 'Cookies').write_text('synthetic session')
+    source.close = AsyncMock()
+    source.open = AsyncMock()
+    calls = []
+    monkeypatch.setattr('mythread.browser.shutil.rmtree', lambda path, **kw: calls.append(kw))
+    monkeypatch.setattr('mythread.browser.asyncio.sleep', AsyncMock())
+    app = BrowserApp(source, auto_start=False)
+    async with app.run_test(size=(110, 35)) as pilot:
+        await pilot.click('#more-actions')
+        await pilot.pause(.1)
+        await pilot.click('#relogin')
+        await pilot.pause(.1)
+        await pilot.click('#confirm-clear')
+        await app.workers.wait_for_complete()
+        assert '未完全清除' in str(app.query_one('#status').render())
+    assert len(calls) == BrowserSource.CLEAR_RETRIES[0]
+    assert (source.profile / 'Cookies').exists()
+    source.open.assert_not_awaited()
+
+
+async def test_relogin_retries_until_locked_files_are_released(monkeypatch, tmp_path):
+    import shutil
+    real_rmtree = shutil.rmtree
+    source = BrowserSource()
+    source.profile = tmp_path / 'profile'
+    source.profile.mkdir()
+    source.close = AsyncMock()
+    source.open = AsyncMock()
+    attempts = []
+
+    def flaky_rmtree(path, **kw):
+        attempts.append(path)
+        if len(attempts) > 1:
+            real_rmtree(path, **kw)
+
+    monkeypatch.setattr('mythread.browser.shutil.rmtree', flaky_rmtree)
+    monkeypatch.setattr('mythread.browser.asyncio.sleep', AsyncMock())
+    await source.relogin()
+    assert len(attempts) == 2 and not source.profile.exists()
+    source.open.assert_awaited_once()
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Windows relies on per-user AppData ACLs')
+def test_profile_directory_is_private(tmp_path):
+    from mythread.browser import private_dir
+    profile = tmp_path / 'profile'
+    profile.mkdir()
+    profile.chmod(0o755)
+    private_dir(profile)
+    assert profile.stat().st_mode & 0o777 == 0o700
+
+
 def test_portable_browser_path_is_relative_to_exe(monkeypatch, tmp_path):
     folder = tmp_path / 'portable with spaces'
     (folder / 'browsers').mkdir(parents=True)
@@ -222,7 +315,9 @@ def test_browser_startup_errors_do_not_expose_raw_diagnostics():
     assert '設定檔使用中' in browser_open_error(Exception('ProcessSingleton secret-value'))
     assert 'install chromium' in browser_open_error(Exception("Executable doesn't exist secret-value"))
     assert '網路' in browser_open_error(Exception('net::ERR_CONNECTION_RESET secret-value'))
-    for message in ('ProcessSingleton', "Executable doesn't exist", 'Timeout', 'unknown'):
+    assert '未完全清除' in browser_open_error(ProfileClearError('secret-value'))
+    assert 'MYTHREAD_DISABLE_SANDBOX' in browser_open_error(Exception('No usable sandbox! secret-value'))
+    for message in ('ProcessSingleton', "Executable doesn't exist", 'Timeout', 'No usable sandbox!', 'unknown'):
         assert 'secret-value' not in browser_open_error(Exception(message + ' secret-value'))
 
 

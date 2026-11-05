@@ -13,7 +13,9 @@
 ## 安全邊界
 
 - 瀏覽器模式只讀 UI／DOM；不匯出 Cookie、不讀密碼或內部 token、不逆向私有 API、不繞過驗證。
-- profile 包含登入狀態與瀏覽器快取，由 Chromium 管理；不能當成一般診斷附件。
+- profile 包含登入狀態與瀏覽器快取，由 Chromium 管理；不能當成一般診斷附件。它等同已登入的 session：共用電腦使用後請「清除登入資料」，不要把 profile 所在資料夾納入雲端同步或備份。POSIX 平台會設為 `0700`；Linux／macOS 上 Playwright 不使用系統金鑰圈，Cookie 加密強度有限。
+- 專用 Chromium 一律啟用沙箱；`MYTHREAD_DISABLE_SANDBOX=1` 僅供無法使用沙箱的 Linux 主機，會降低網頁漏洞的隔離。
+- 「清除登入資料」只刪除未被重新導向的 `profile` 目錄；未完全刪除時會顯示失敗，不會假裝已登出。
 - 0.2 已移除 API／Token／OAuth／發文功能，不讀取或清理舊版 keyring 與草稿；legacy 版本的資料須分開管理。
 - 可攜版隨附 Python／Node／Chromium，需隨上游安全更新重新建置；目前沒有自動更新或程式碼簽章，不可宣稱已簽署。
 - CI 僅使用 mock／合成 HTML／暫存 profile，不應加入真實 Threads 憑證或上傳原始瀏覽器 artifacts。

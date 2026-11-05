@@ -38,6 +38,10 @@ class BrowserBatch:
     message: str = ''  # locally authored text only; never raw DOM or exception text
 
 
+class ProfileClearError(RuntimeError):
+    """The dedicated profile could not be (fully) removed; login data may remain."""
+
+
 THREADS_HOSTS = frozenset({'www.threads.com', 'threads.com', 'www.threads.net', 'threads.net'})
 HOME_URL = 'https://www.threads.com/'
 # Also embedded in dom/snapshot.js (tests/test_architecture.py keeps the two in sync).

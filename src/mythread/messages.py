@@ -3,7 +3,7 @@
 Rules: messages are authored here, never built from raw exceptions, URLs or DOM
 text. Widget labels stay next to their widgets in the UI modules.
 """
-from .model import BrowserBatch, State
+from .model import BrowserBatch, ProfileClearError, State
 
 
 class Msg:
@@ -94,7 +94,13 @@ def browser_status(source, batch: BrowserBatch) -> str:
 
 def browser_open_error(exc: BaseException) -> str:
     """Map a launch/navigation exception to safe guidance; never echo its text."""
+    if isinstance(exc, ProfileClearError):
+        return ('登入資料未完全清除：請關閉所有 myThread APP 後再點「清除登入資料」；'
+                '若仍失敗，請手動刪除專用 profile 資料夾。')
     detail = str(exc).lower()
+    if 'no usable sandbox' in detail:
+        return ('Chromium 沙箱無法啟動：請確認系統允許非特權使用者命名空間；'
+                '確定要在無沙箱下執行時，可設定環境變數 MYTHREAD_DISABLE_SANDBOX=1（降低安全性）。')
     if any(term in detail for term in ('processsingleton', 'singletonlock', 'profile appears to be in use',
                                        'user data directory is already in use')):
         return '瀏覽器設定檔使用中：請先關閉另一個 myThread APP（包含背景執行的版本），再點「登入視窗」重試。'
